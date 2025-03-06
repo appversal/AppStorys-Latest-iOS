@@ -1,150 +1,425 @@
 //
-//  AppStorys.swift
-//  AppStorys-iOS
+//  File.swift
+//  AppStorys-iOS-main-3
 //
-//  Created by Darshika Gupta on 06/03/25.
+//  Created by Darshika Gupta on 28/02/25.
 //
 
-//import Foundation
-//import SwiftUI
-//
-//public class AppStorys: ObservableObject {
-//    static let shared = AppStorys()
-//    @Published var campaigns: [Campaign] = []
-//    @Published var accessToken: String?
-//    
-//    private let baseURL = "https://backend.appstorys.com/api/v1"
-//    private var appId: String? {
-//        UserDefaults.standard.string(forKey: "app_id")
-//    }
-//    
-//    private func makeRequest(endpoint: String, method: String = "POST", body: [String: Any]?) async throws -> Data? {
-//        guard let url = URL(string: "\(baseURL)/\(endpoint)") else { return nil }
-//        var request = URLRequest(url: url)
-//        request.httpMethod = method
-//        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-//        if let token = accessToken {
-//            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-//        }
-//        if let body = body {
-//            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-//        }
-//        
-//        let (data, response) = try await URLSession.shared.data(for: request)
-//        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-//            print("Error in API call to \(endpoint): \(response)")
-//            return nil
-//        }
-//        return data
-//    }
-//    
-//    func trackScreen(appId: String, screenName: String) async {
-//        guard let data = try? await makeRequest(endpoint: "users/track-screen/", body: ["app_id": appId, "screen_name": screenName]) else { return }
-//        
-//        if let jsonResponse = try? JSONDecoder().decode(TrackScreenResponse.self, from: data) {
-//            DispatchQueue.main.async {
-//                self.campaigns = jsonResponse.campaigns
-//            }
-//        }
-//    }
-//    
-//    func trackUser(userId: String, attributes: [[String: String]]) async {
-//        guard let appId = appId else { return }
-//        _ = try? await makeRequest(endpoint: "users/update-user/", body: ["user_id": userId, "app_id": appId, "attributes": attributes])
-//    }
-//    
-//    func trackUserAction(userId: String, campaignId: String, eventType: String, storySlide: String? = nil, widgetImage: String? = nil) async {
-//        var body: [String: Any] = ["campaign_id": campaignId, "user_id": userId, "event_type": eventType]
-//        if let storySlide = storySlide { body["story_slide"] = storySlide }
-//        if let widgetImage = widgetImage { body["widget_image"] = widgetImage }
-//        
-//        _ = try? await makeRequest(endpoint: "users/track-action/", body: body)
-//    }
-//    
-//    func verifyAccount(accountId: String, appId: String) async {
-//        UserDefaults.standard.setValue(appId, forKey: "app_id")
-//        
-//        guard let data = try? await makeRequest(endpoint: "admins/validate-account/", body: ["account_id": accountId, "app_id": appId]) else { return }
-//        
-//        if let jsonResponse = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
-//            if let token = jsonResponse["access_token"] as? String {
-//                DispatchQueue.main.async {
-//                    self.accessToken = token
-//                    UserDefaults.standard.setValue(token, forKey: "access_token")
-//                }
-//            }
-//        }
-//    }
-//    
-//    func captureCsatResponse(csatId: String, userId: String, rating: Int, feedbackOption: String? = nil, additionalComments: String? = nil) async {
-//        var body: [String: Any] = ["csat": csatId, "user_id": userId, "rating": rating]
-//        if let feedbackOption = feedbackOption { body["feedback_option"] = feedbackOption }
-//        if let additionalComments = additionalComments { body["additional_comments"] = additionalComments }
-//        
-//        _ = try? await makeRequest(endpoint: "campaigns/capture-csat-response/", body: body)
-//    }
-//    
-//    func captureSurveyResponse(surveyId: String, userId: String, responseOptions: [String], comment: String? = nil) async {
-//        var body: [String: Any] = ["user_id": userId, "survey": surveyId, "responseOptions": responseOptions]
-//        if let comment = comment { body["comment"] = comment }
-//        
-//        _ = try? await makeRequest(endpoint: "campaigns/capture-survey-response/", body: body)
-//    }
-//    
-//    static let preview: AppStorys = {
-//        let instance = AppStorys()
-//        instance.accessToken = "MockAccessToken"
-//        instance.campaigns = [Campaign(id: "123", position: "top")]
-//        return instance
-//    }()
-//}
-//
-//struct TrackScreenResponse: Codable {
-//    let campaigns: [Campaign]
-//}
-//
-//struct Campaign: Codable {
-//    let id: String
-//    let position: String
-//}
-////
-////struct ContentView: View {
-////    @StateObject private var appStorys = AppStorys.shared
-////    @State private var accessToken: String?
-////    
-////    private let userId = "YOUR_USER_ID"
-////    private let appId = "1163a1a2-61a8-486c-b263-7252f9a502c2"
-////    private let accountId = "5bb1378d-9f32-4da8-aed1-1ee44d086db7"
-////    private let screenName = "Home Screen"
-////    private let attributes: [[String: String]] = [["key": "value"]]
-////    
-////    var body: some View {
-////        VStack {
-////            Text("AppStorys SDK")
-////                .font(.title)
-////            if let token = accessToken {
-////                Text("Access Token: \(token)")
-////                    .font(.subheadline)
-////            }
-////        }
-////        .onAppear {
-//////            #if !DEBUG
-////            Task {
-////                await appStorys.verifyAccount(accountId: accountId, appId: appId)
-////                await appStorys.trackScreen(appId: appId, screenName: screenName)
-////                await appStorys.trackUser(userId: userId, attributes: attributes)
-////                DispatchQueue.main.async {
-////                    self.accessToken = UserDefaults.standard.string(forKey: "access_token")
-////                }
-////            }
-//////            #endif
-////        }
-////    }
-////}
-////
-////struct ContentView_Previews: PreviewProvider {
-////    static var previews: some View {
-////        ContentView()
-////            .environmentObject(AppStorys.preview)
-////    }
-////}
+import SwiftUI
+import Foundation
+
+@MainActor
+public class AppStorys: ObservableObject {
+    @Published var accessToken: String? = nil
+    @Published var campaigns: [String] = []
+    @Published var widgetCampaigns: [CampaignTwo] = []
+    @Published var banCampaigns: [CampaignTwo] = []
+
+    public enum Endpoints: String {
+            case validateAccount = "/validate-account/"
+            case trackScreen = "/track-screen/"
+            case trackUser = "/track-user/"
+            case trackAction = "/track-action/"
+    }
+  
+    public init() {}
+    
+    public func appstorys(appID: String, accountID: String, userID: String) async {
+            UserDefaults.standard.set(userID, forKey: "userID")
+            await validateAccount(appID: appID, accountID: accountID)
+        }
+
+    public func validateAccount(appID: String, accountID: String) async {
+            let url = URL(string: "https://backend.appstorys.com/api/v1/users\(Endpoints.validateAccount.rawValue)")!
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            let body: [String: String] = [
+                "app_id": appID,
+                "account_id": accountID
+            ]
+            
+            request.httpBody = try? JSONEncoder().encode(body)
+            
+            do {
+                let (data, _) = try await URLSession.shared.data(for: request)
+                let decodedResponse = try JSONDecoder().decode(ValidateAccountResponse.self, from: data)
+                
+                DispatchQueue.main.async {
+                    self.accessToken = decodedResponse.access_token
+                    UserDefaults.standard.set(decodedResponse.access_token, forKey: "accessToken")
+                    UserDefaults.standard.set(decodedResponse.refresh_token, forKey: "refreshToken")
+                    
+                    print("✅ Access Token saved: \(decodedResponse.access_token)")
+                }
+            } catch {
+               
+            }
+        }
+
+    public func trackScreen(screenName: String, positions: [String]? = nil) {
+        guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+            print("Error: No access token found")
+            return
+        }
+        
+        let url = URL(string: "https://backend.appstorys.com/api/v1/users/track-screen/")!
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        
+        var body: [String: Any] = [
+            "screen_name": screenName
+        ]
+        
+        if let positions = positions, !positions.isEmpty {
+            body["position_list"] = positions
+        }
+        
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body, options: [])
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            guard let data = data, error == nil else {
+                print("Error: \(error?.localizedDescription ?? "Unknown error")")
+                return
+            }
+            
+            do {
+                let decodedResponse = try JSONDecoder().decode(TrackScreenResponse.self, from: data)
+                
+                DispatchQueue.main.async {
+                    let campaigns = decodedResponse.campaigns
+                    self.trackUser(campaigns: campaigns, attributes: nil)
+                }
+                
+            } catch {
+                
+            }
+        }.resume()
+    }
+    
+    func trackUser(campaigns: [String], attributes: [[String: Any]]?) {
+     
+        guard let userID = UserDefaults.standard.string(forKey: "userID") else {
+           
+            return
+        }
+
+        guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+           
+            return
+        }
+
+        let url = URL(string: "https://backend.appstorys.com/api/v1/users/track-user/")!
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        
+        let body: [String: Any] = [
+            "user_id": userID,
+            "campaign_list": campaigns,
+            "attributes" : attributes
+        ]
+        
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body, options: [])
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            guard let data = data, error == nil else {
+                return
+            }
+            
+            do {
+                let decodedResponse = try JSONDecoder().decode(TrackUserResponseTwo.self, from: data)
+                DispatchQueue.main.async {
+                    self.banCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BAN" }
+                    self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
+
+                }
+            } catch {
+            }
+        }.resume()
+    }
+
+    
+    func trackAction(type: ActionType, campaignID: String, widgetID : String) async {
+        guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+            return
+        }
+
+        guard !campaignID.isEmpty else {
+            return
+        }
+
+        guard let userID = UserDefaults.standard.string(forKey: "userID") else {
+            return
+        }
+
+        let url = URL(string: "https://backend.appstorys.com/api/v1/users/track-action/")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let body: [String: Any] = [
+            "event_type": type.rawValue,
+            "campaign_id": campaignID,
+            "user_id": userID,
+            "widget_image" : widgetID
+        ]
+
+        // Convert body to JSON
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body, options: .prettyPrinted) else {
+            return
+        }
+        request.httpBody = jsonData
+
+        // Debug: Print request JSON
+        if let jsonString = String(data: jsonData, encoding: .utf8) {
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return
+            }
+
+            if httpResponse.statusCode == 401 {
+            }
+
+        } catch {
+        }
+    }
+
+
+    func isTokenExpired(_ token: String) -> Bool {
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return true }
+        
+        let payloadData = Data(base64Encoded: String(parts[1]).padding(toLength: ((parts[1].count+3)/4)*4, withPad: "=", startingAt: 0))
+        guard let data = payloadData,
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let exp = payload["exp"] as? TimeInterval else {
+            return true
+        }
+        
+        let expirationDate = Date(timeIntervalSince1970: exp)
+        return expirationDate <= Date()
+    }
+
+    public func trackEvents(eventType: String, campaignId: String? = nil, metadata: [String: Any]? = nil) {
+        guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+            return
+        }
+        guard let userID = UserDefaults.standard.string(forKey: "userID") else {
+            return
+        }
+
+            // Build the request body
+            var requestBody: [String: Any] = [
+                "user_id": userID,
+                "event": eventType
+            ]
+            
+            if let campaignId = campaignId {
+                requestBody["campaign_id"] = campaignId
+            }
+            
+            if let metadata = metadata {
+                requestBody["metadata"] = metadata
+            }
+
+            do {
+                let jsonData = try JSONSerialization.data(withJSONObject: requestBody, options: [])
+                
+             
+                var request = URLRequest(url: URL(string: "https://tracking.appstorys.com/capture-event")!)
+                request.httpMethod = "POST"
+                request.httpBody = jsonData
+                request.addValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+                request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+
+              
+                let task = URLSession.shared.dataTask(with: request) { data, response, error in
+                    if let error = error {
+                        return
+                    }
+                    if let response = response as? HTTPURLResponse {
+                    }
+                }
+                task.resume()
+            } catch {
+            }
+        }
+
+
+    struct TrackUserRequest: Codable {
+        let user_id: String
+        let campaign_list: [String]
+        let attributes: [[String: AnyCodable]]?
+        
+    }
+    struct TrackActionRequest: Codable {
+        let campaign_id: String
+        let user_id: String
+        let event_type: String
+        let widget_id: String?
+    }
+
+    private struct TrackScreenRequest: Codable {
+        let screen_name: String
+        let position_list: [String]
+    }
+
+}
+
+enum APIError: Error {
+    case noAccessToken
+    case invalidResponse
+    case invalidURL
+}
+
+enum ActionType: String {
+    case view = "IMP"
+    case click = "CLK"
+}
+
+// Root Response Model
+struct TrackUserResponseTwo: Codable {
+    let userID: String
+    let campaigns: [CampaignTwo]
+
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id"
+        case campaigns
+    }
+}
+// Generic Campaign Model
+struct CampaignTwo: Codable {
+    let id: String
+    let campaignType: String
+    let position: String?
+    let details: CampaignDetailsTwo
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case campaignType = "campaign_type"
+        case position
+        case details
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.campaignType = try container.decode(String.self, forKey: .campaignType)
+        self.position = try container.decodeIfPresent(String.self, forKey: .position)
+        
+       
+        switch campaignType {
+        case "BAN":
+            self.details = .banner(try container.decode(Details.self, forKey: .details))
+        case "WID":
+            self.details = .widget(try container.decode(CampaignDetailsForWidget.self, forKey: .details))
+        default:
+            self.details = .unknown
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(campaignType, forKey: .campaignType)
+        try container.encodeIfPresent(position, forKey: .position)
+
+        switch details {
+        case .banner(let bannerDetails):
+            try container.encode(bannerDetails, forKey: .details)
+        case .widget(let widgetDetails):
+            try container.encode(widgetDetails, forKey: .details)
+        case .unknown:
+            break
+        }
+    }
+}
+
+
+enum CampaignDetailsTwo {
+    case banner(Details)
+    case widget(CampaignDetailsForWidget)
+    case unknown
+    
+    var widgetType: String? {
+        if case let .widget(widgetDetails) = self {
+            return widgetDetails.type
+        }
+        return nil
+    }
+}
+struct ValidateAccountResponse: Codable {
+    let access_token: String
+    let refresh_token: String
+}
+
+struct TrackScreenResponse: Codable {
+    let campaigns: [String]
+}
+
+struct AnyCodable: Codable {
+    let value: Any
+
+    init(_ value: Any) {
+        self.value = value
+    }
+
+    // Custom initializer for decoding
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let boolValue = try? container.decode(Bool.self) {
+            self.value = boolValue
+        } else if let intValue = try? container.decode(Int.self) {
+            self.value = intValue
+        } else if let doubleValue = try? container.decode(Double.self) {
+            self.value = doubleValue
+        } else if let stringValue = try? container.decode(String.self) {
+            self.value = stringValue
+        } else if let arrayValue = try? container.decode([AnyCodable].self) {
+            self.value = arrayValue
+        } else if let dictValue = try? container.decode([String: AnyCodable].self) {
+            self.value = dictValue
+        } else {
+            throw DecodingError.typeMismatch(Any.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unsupported type"))
+        }
+    }
+
+    // Custom method for encoding
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch value {
+        case let value as Bool:
+            try container.encode(value)
+        case let value as Int:
+            try container.encode(value)
+        case let value as Double:
+            try container.encode(value)
+        case let value as String:
+            try container.encode(value)
+        case let value as [AnyCodable]:
+            try container.encode(value)
+        case let value as [String: AnyCodable]:
+            try container.encode(value)
+        default:
+            throw EncodingError.invalidValue(value, EncodingError.Context(codingPath: [], debugDescription: "Unsupported type"))
+        }
+    }
+}
+
+extension Collection {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
