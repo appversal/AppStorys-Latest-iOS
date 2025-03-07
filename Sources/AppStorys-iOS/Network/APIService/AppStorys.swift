@@ -14,7 +14,7 @@ public class AppStorys: ObservableObject {
     @Published var campaigns: [String] = []
     @Published var widgetCampaigns: [CampaignTwo] = []
     @Published var banCampaigns: [CampaignTwo] = []
-
+    
     public enum Endpoints: String {
             case validateAccount = "/validate-account/"
             case trackScreen = "/track-screen/"

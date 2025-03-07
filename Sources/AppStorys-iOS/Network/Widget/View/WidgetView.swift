@@ -157,24 +157,23 @@ public struct WidgetView: View {
     }
 
     private func startAutoSlide() {
-        // Timer to automatically change the selected index every 5 seconds
+        guard !images.isEmpty else { return } // Prevent crash if no images
+        
         Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
-            // Ensure UI updates happen on the main thread
             DispatchQueue.main.async {
                 withAnimation {
-                    // Increment index and wrap around if it exceeds the image count
-                    selectedIndex = (selectedIndex + 1) % (isHalfWidget() ? (images.count / 2) : images.count)
+                    let totalImages = isHalfWidget() ? max(1, images.count / 2) : max(1, images.count)
+                    selectedIndex = (selectedIndex + 1) % totalImages
                 }
             }
         }
     }
 
     private func isHalfWidget() -> Bool {
-        // Determine if widget type is "half"
-        
-        
-        return apiService.widgetCampaigns.first(where: { $0.position == position })?.details.widgetType == "half"
+        let widget = apiService.widgetCampaigns.first(where: { $0.position == position })
+        return widget?.details.widgetType == "half" && images.count >= 2
     }
+
 
     private func didViewWidgetImage(at index: Int) {
         guard let campaignID, let viewedImage = images[safe: index] else { return }

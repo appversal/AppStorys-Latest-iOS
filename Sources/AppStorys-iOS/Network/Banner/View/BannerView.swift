@@ -43,7 +43,7 @@ public struct BannerView: View {
                     .frame(height: CGFloat(imageHeight))
                     .frame(maxWidth: .infinity)
                 } else {
-                    EmptyView() 
+                    EmptyView()
                 }
             }
         }
