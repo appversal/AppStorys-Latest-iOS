@@ -7,11 +7,8 @@ public struct WidgetView: View {
     @State private var images: [WidgetImage] = []
     @State private var selectedIndex = 0
     @State private var campaignID: String?
-    
-    // Track which images have been viewed to prevent multiple views from being tracked
     @State private var viewedImageIDs: Set<String> = []
-
-    // Added position property to filter the widget campaign
+    
     var position: String
 
     private enum Constants {
@@ -28,8 +25,7 @@ public struct WidgetView: View {
     public var body: some View {
         VStack(spacing: 16) {
             if images.isEmpty {
-                ProgressView()
-                    .frame(height: widgetHeight)
+                EmptyView().frame(height: widgetHeight)
             } else {
                 if isHalfWidget() {
 
@@ -204,6 +200,9 @@ public struct WidgetView: View {
         Task {
             try await apiService.trackAction(type: .click, campaignID: campaignID, widgetID: tappedImage.id)
         }
+        if let url = URL(string: tappedImage.imageURL) {
+                UIApplication.shared.open(url)
+            }
     }
 }
 

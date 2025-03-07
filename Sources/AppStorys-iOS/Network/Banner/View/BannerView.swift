@@ -35,6 +35,7 @@ public struct BannerView: View {
                                 }
                         case .failure:
                             Text("Failed to load image")
+                            EmptyView() //
                         @unknown default:
                             EmptyView()
                         }
@@ -42,8 +43,7 @@ public struct BannerView: View {
                     .frame(height: CGFloat(imageHeight))
                     .frame(maxWidth: .infinity)
                 } else {
-                    ProgressView("")
-                        .padding()
+                    EmptyView() 
                 }
             }
         }
