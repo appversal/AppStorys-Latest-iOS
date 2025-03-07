@@ -199,8 +199,10 @@ public struct WidgetView: View {
         Task {
             try await apiService.trackAction(type: .click, campaignID: campaignID, widgetID: tappedImage.id)
         }
-        if let url = URL(string: tappedImage.imageURL) {
-                UIApplication.shared.open(url)
+        if let url = URL(string: tappedImage.link) {
+                DispatchQueue.main.async {
+                    UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                }
             }
     }
 }
