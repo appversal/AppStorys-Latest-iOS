@@ -139,7 +139,7 @@ public class AppStorys: ObservableObject {
                 DispatchQueue.main.async {
                     self.banCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BAN" }
                     self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
-                    print("\(self.widgetCampaigns)")
+                    print("\(self.banCampaigns)")
                 }
             } catch {
             }

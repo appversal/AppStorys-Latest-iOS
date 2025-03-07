@@ -1,7 +1,12 @@
 import SwiftUI
 
+import SDWebImageSwiftUI
+
+import SwiftUI
+import SDWebImageSwiftUI
+
 public struct BannerView: View {
-    @ObservedObject private var apiService: AppStorys 
+    @ObservedObject private var apiService: AppStorys
     
     public init(apiService: AppStorys) {
         self.apiService = apiService
@@ -16,34 +21,20 @@ public struct BannerView: View {
                     let imageHeight = details.height ?? 60
                     let validLink = (details.link?.isEmpty == false) ? details.link : nil
 
-                    AsyncImage(url: URL(string: imageUrl)) { phase in
-                        switch phase {
-                        case .empty:
-                            ProgressView()
-                                .frame(height: CGFloat(imageHeight))
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .frame(maxWidth: .infinity)
-                                .frame(height: CGFloat(imageHeight))
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .onTapGesture {
-                                    if let link = validLink, let url = URL(string: link), UIApplication.shared.canOpenURL(url) {
-                                        UIApplication.shared.open(url)
-                                    }
-                                }
-                        case .failure:
-                            Text("Failed to load image")
-                            EmptyView() //
-                        @unknown default:
-                            EmptyView()
+                    WebImage(url: URL(string: imageUrl))
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: CGFloat(imageHeight))
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                        .onTapGesture {
+                            if let link = validLink, let url = URL(string: link), UIApplication.shared.canOpenURL(url) {
+                                UIApplication.shared.open(url)
+                            }
                         }
-                    }
-                    .frame(height: CGFloat(imageHeight))
-                    .frame(maxWidth: .infinity)
+                        
                 } else {
-                    EmptyView()
+                    ProgressView()
                 }
             }
         }
