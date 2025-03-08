@@ -91,7 +91,7 @@ public class AppStorys: ObservableObject {
             let decodedResponse = try JSONDecoder().decode(TrackScreenResponse.self, from: data)
             let campaigns = decodedResponse.campaigns
 
-            print("✅ trackScreen completed, calling trackUser")
+//            print("✅ trackScreen completed, calling trackUser")
             await trackUser(campaigns: campaigns, attributes: nil)
         } catch {
             print("❌ Error in trackScreen: \(error)")
@@ -126,13 +126,13 @@ public class AppStorys: ObservableObject {
             let decodedResponse = try JSONDecoder().decode(TrackUserResponseTwo.self, from: data)
             
             DispatchQueue.main.async {
-                print("📢 Full API response: \(decodedResponse)")
+//                print("📢 Full API response: \(decodedResponse)")
                 self.banCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BAN" }
                 self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
-                print("📢 Widget campaigns after filtering: \(self.widgetCampaigns.count)")
+//                print("📢 Widget campaigns after filtering: \(self.widgetCampaigns.count)")
             }
         } catch {
-            print("❌ Error in trackUser: \(error)")
+//           print("❌ Error in trackUser: \(error)")
         }
     }
 

@@ -50,7 +50,7 @@ public struct WidgetView: View {
                                     .onAppear {
                                         // Only track if the image is visible
                                         if index == selectedIndex {
-                                            print("index * 2 : \(index * 2)")
+//                                            print("index * 2 : \(index * 2)")
                                             didViewWidgetImage(at: index * 2)
                                         }
                                     }
@@ -67,7 +67,7 @@ public struct WidgetView: View {
                                     .onAppear {
                                         // Only track if the image is visible
                                         if index == selectedIndex {
-                                            print("index * 2 : \(index * 2+1)")
+//                                            print("index * 2 : \(index * 2+1)")
                                             didViewWidgetImage(at: index * 2 + 1)
                                         }
                                     }
@@ -99,7 +99,7 @@ public struct WidgetView: View {
                                 .onAppear {
                                     // Only track if the image is visible
                                     if index == selectedIndex {
-                                        print("index  : \(index)")
+//                                        print("index  : \(index)")
                                         didViewWidgetImage(at: index)
                                     }
                                 }
