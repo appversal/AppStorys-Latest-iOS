@@ -59,58 +59,50 @@ public class AppStorys: ObservableObject {
             }
         }
 
-    public func trackScreen(screenName: String, positions: [String]? = nil) {
-        guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
-            print("Error: No access token found")
+    public func trackScreen(screenName: String, positions: [String]? = nil) async {
+        var accessToken = UserDefaults.standard.string(forKey: "accessToken")
+
+        // 🔄 Retry fetching access token if missing
+        if accessToken == nil {
+            print("🔄 Retrying to fetch access token...")
+            try? await Task.sleep(nanoseconds: 1_000_000_000)  // Wait 1 sec
+            accessToken = UserDefaults.standard.string(forKey: "accessToken")
+        }
+
+        guard let accessToken else {
+            print("❌ Still no access token, aborting trackScreen")
             return
         }
-        
+
         let url = URL(string: "https://backend.appstorys.com/api/v1/users/track-screen/")!
-        
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        
-        var body: [String: Any] = [
-            "screen_name": screenName
-        ]
-        
-        if let positions = positions, !positions.isEmpty {
+
+        var body: [String: Any] = ["screen_name": screenName]
+        if let positions, !positions.isEmpty {
             body["position_list"] = positions
         }
-        
         request.httpBody = try? JSONSerialization.data(withJSONObject: body, options: [])
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            guard let data = data, error == nil else {
-                print("Error: \(error?.localizedDescription ?? "Unknown error")")
-                return
-            }
-            
-            do {
-                let decodedResponse = try JSONDecoder().decode(TrackScreenResponse.self, from: data)
-                
-                DispatchQueue.main.async {
-                    let campaigns = decodedResponse.campaigns
-                    self.trackUser(campaigns: campaigns, attributes: nil)
-                }
-                
-            } catch {
-                
-            }
-        }.resume()
-    }
-    
-    func trackUser(campaigns: [String], attributes: [[String: Any]]?) {
-     
-        guard let userID = UserDefaults.standard.string(forKey: "userID") else {
-           
-            return
-        }
 
-        guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
-           
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let decodedResponse = try JSONDecoder().decode(TrackScreenResponse.self, from: data)
+            let campaigns = decodedResponse.campaigns
+
+            print("✅ trackScreen completed, calling trackUser")
+            await trackUser(campaigns: campaigns, attributes: nil)
+        } catch {
+            print("❌ Error in trackScreen: \(error)")
+        }
+    }
+
+
+    public func trackUser(campaigns: [String], attributes: [[String: Any]]?) async {
+        guard let userID = UserDefaults.standard.string(forKey: "userID"),
+              let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+            print("Error: No access token or user ID")
             return
         }
 
@@ -124,30 +116,28 @@ public class AppStorys: ObservableObject {
         let body: [String: Any] = [
             "user_id": userID,
             "campaign_list": campaigns,
-            "attributes" : attributes
+            "attributes": attributes ?? []
         ]
         
         request.httpBody = try? JSONSerialization.data(withJSONObject: body, options: [])
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            guard let data = data, error == nil else {
-                return
-            }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let decodedResponse = try JSONDecoder().decode(TrackUserResponseTwo.self, from: data)
             
-            do {
-                let decodedResponse = try JSONDecoder().decode(TrackUserResponseTwo.self, from: data)
-                DispatchQueue.main.async {
-                    self.banCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BAN" }
-                    self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
-                    print("\(self.banCampaigns)")
-                }
-            } catch {
+            DispatchQueue.main.async {
+                print("📢 Full API response: \(decodedResponse)")
+                self.banCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BAN" }
+                self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
+                print("📢 Widget campaigns after filtering: \(self.widgetCampaigns.count)")
             }
-        }.resume()
+        } catch {
+            print("❌ Error in trackUser: \(error)")
+        }
     }
 
     
-    func trackAction(type: ActionType, campaignID: String, widgetID : String) async {
+    func trackAction(type: ActionType, campaignID: String, widgetID : String?) async {
         guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
             return
         }

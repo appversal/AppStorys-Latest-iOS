@@ -27,7 +27,16 @@ public struct BannerView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: CGFloat(imageHeight))
                         .clipShape(RoundedRectangle(cornerRadius: 5))
+                        .onAppear(){
+                            Task {
+                                await apiService.trackAction(type: .view, campaignID: banCampaign.id, widgetID: "")
+                            }
+                            
+                        }
                         .onTapGesture {
+                            Task {
+                                await apiService.trackAction(type: .click, campaignID: banCampaign.id, widgetID: "")
+                            }
                             if let link = validLink, let url = URL(string: link), UIApplication.shared.canOpenURL(url) {
                                 UIApplication.shared.open(url)
                             }
