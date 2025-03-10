@@ -43,7 +43,7 @@ public class AppStorys: ObservableObject {
     }
     
     public func appstorys(appID: String, accountID: String, userID: String) async {
-            UserDefaults.standard.set(userID, forKey: "userID")
+            UserDefaults.standard.set(userID, forKey: "userIDAppStorys")
             await validateAccount(appID: appID, accountID: accountID)
         }
 
@@ -68,7 +68,7 @@ public class AppStorys: ObservableObject {
                 DispatchQueue.main.async {
                     self.accessToken = decodedResponse.access_token
                     UserDefaults.standard.set(decodedResponse.access_token, forKey: "accessTokenAppStorys")
-                    UserDefaults.standard.set(decodedResponse.refresh_token, forKey: "refreshToken")
+                    UserDefaults.standard.set(decodedResponse.refresh_token, forKey: "refreshTokenAppStorys")
                 }
             } catch {
                
@@ -118,7 +118,7 @@ public class AppStorys: ObservableObject {
 
 
     public func trackUser(campaigns: [String], attributes: [[String: Any]]?) async {
-        guard let userID = UserDefaults.standard.string(forKey: "userID"),
+        guard let userID = UserDefaults.standard.string(forKey: "userIDAppStorys"),
               let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
             return
         }
@@ -164,7 +164,7 @@ public class AppStorys: ObservableObject {
             return
         }
 
-        guard let userID = UserDefaults.standard.string(forKey: "userID") else {
+        guard let userID = UserDefaults.standard.string(forKey: "userIDAppStorys") else {
             return
         }
 
@@ -221,7 +221,7 @@ public class AppStorys: ObservableObject {
         guard let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
             return
         }
-        guard let userID = UserDefaults.standard.string(forKey: "userID") else {
+        guard let userID = UserDefaults.standard.string(forKey: "userIDAppStorys") else {
             return
         }
 

@@ -86,7 +86,7 @@ public struct CsatView: View {
     private func submitFeedback() {
         if let csatCampaign = apiService.csatCampaigns.first {
             if case let .csat(details) = csatCampaign.details   {
-                captureCsatResponse(csatId: details.id, userId: UserDefaults.standard.string(forKey: "userID")!, rating: selectedStars, feedbackOption: selectedOption, additionalComments: additionalComments)
+                captureCsatResponse(csatId: details.id, userId: UserDefaults.standard.string(forKey: "userIDAppStorys")!, rating: selectedStars, feedbackOption: selectedOption, additionalComments: additionalComments)
             }
         }
         showThanks = true
@@ -94,7 +94,7 @@ public struct CsatView: View {
     }
     
     private func captureCsatResponse(csatId: String, userId: String, rating: Int, feedbackOption: String?, additionalComments: String?) {
-        guard let userID = UserDefaults.standard.string(forKey: "userID"),
+        guard let userID = UserDefaults.standard.string(forKey: "userIDAppStorys"),
               let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
             return
         }
