@@ -1,6 +1,19 @@
-
 import SwiftUI
 import SDWebImageSwiftUI
+
+struct RoundedCorners: Shape {
+    var radius: CGFloat
+    var corners: UIRectCorner
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: corners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(path.cgPath)
+    }
+}
 
 public struct BannerView: View {
     @ObservedObject private var apiService: AppStorys
@@ -15,20 +28,19 @@ public struct BannerView: View {
                 if case let .banner(details) = banCampaign.details,
                    let imageUrl = details.image {
 
-                    let imageHeight = details.height ?? 60
+                    let imageHeight = details.height ?? 0
                     let validLink = (details.link?.isEmpty == false) ? details.link : nil
 
                     WebImage(url: URL(string: imageUrl))
                         .resizable()
-                        .scaledToFill()
+                        .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity)
-                        .frame(height: CGFloat(imageHeight))
-                        .clipShape(RoundedRectangle(cornerRadius: 5))
-                        .onAppear(){
+                        .frame(height: CGFloat(imageHeight)) 
+                        .clipShape(RoundedCorners(radius: 5, corners: [.topLeft, .topRight]))
+                        .onAppear {
                             Task {
                                 await apiService.trackAction(type: .view, campaignID: banCampaign.id, widgetID: "")
                             }
-                            
                         }
                         .onTapGesture {
                             Task {
@@ -38,7 +50,6 @@ public struct BannerView: View {
                                 UIApplication.shared.open(url)
                             }
                         }
-                        
                 } else {
                     ProgressView()
                 }
@@ -48,6 +59,4 @@ public struct BannerView: View {
     }
 }
 
-#Preview {
-    BannerView(apiService: AppStorys())
-}
+

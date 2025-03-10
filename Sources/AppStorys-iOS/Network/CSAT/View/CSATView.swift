@@ -95,7 +95,7 @@ public struct CsatView: View {
     
     private func captureCsatResponse(csatId: String, userId: String, rating: Int, feedbackOption: String?, additionalComments: String?) {
         guard let userID = UserDefaults.standard.string(forKey: "userID"),
-              let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+              let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
             return
         }
         
@@ -215,7 +215,7 @@ public struct CsatView: View {
                             }
                             
                             let campaignID = apiService.csatCampaigns.first?.id ?? ""
-                            let accessToken = UserDefaults.standard.string(forKey: "accessToken")
+                            let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys")
                             
                             
                             
@@ -338,7 +338,7 @@ public struct CsatView: View {
     
     @MainActor
     func trackAction(campaignID: String, actionType: ActionType) {
-        guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+        guard let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
             
             return
         }

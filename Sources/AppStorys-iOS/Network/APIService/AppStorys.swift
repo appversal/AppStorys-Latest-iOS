@@ -10,11 +10,30 @@ import Foundation
 
 @MainActor
 public class AppStorys: ObservableObject {
+    
+    private let session: URLSession
+
+    var testSession: URLSession {
+        return session
+    }
+
     @Published var accessToken: String? = nil
     @Published var campaigns: [String] = []
     @Published var widgetCampaigns: [CampaignTwo] = []
     @Published var banCampaigns: [CampaignTwo] = []
     @Published var csatCampaigns: [CampaignTwo] = []
+    @Published var pipCampaigns: [CampaignTwo] = []
+    
+    public init() {
+            let config = URLSessionConfiguration.default
+            config.httpCookieStorage = nil
+            config.httpShouldSetCookies = false
+            config.httpCookieAcceptPolicy = .never
+            config.timeoutIntervalForRequest = 30
+            config.timeoutIntervalForResource = 60
+            config.urlCache = nil
+            self.session = URLSession(configuration: config)
+        }
     
     public enum Endpoints: String {
             case validateAccount = "/validate-account/"
@@ -22,8 +41,6 @@ public class AppStorys: ObservableObject {
             case trackUser = "/track-user/"
             case trackAction = "/track-action/"
     }
-  
-    public init() {}
     
     public func appstorys(appID: String, accountID: String, userID: String) async {
             UserDefaults.standard.set(userID, forKey: "userID")
@@ -45,15 +62,13 @@ public class AppStorys: ObservableObject {
             request.httpBody = try? JSONEncoder().encode(body)
             
             do {
-                let (data, _) = try await URLSession.shared.data(for: request)
+                let (data, _) = try await session.data(for: request)
                 let decodedResponse = try JSONDecoder().decode(ValidateAccountResponse.self, from: data)
                 
                 DispatchQueue.main.async {
                     self.accessToken = decodedResponse.access_token
-                    UserDefaults.standard.set(decodedResponse.access_token, forKey: "accessToken")
+                    UserDefaults.standard.set(decodedResponse.access_token, forKey: "accessTokenAppStorys")
                     UserDefaults.standard.set(decodedResponse.refresh_token, forKey: "refreshToken")
-                    
-//                    print("✅ Access Token saved: \(decodedResponse.access_token)")
                 }
             } catch {
                
@@ -61,12 +76,12 @@ public class AppStorys: ObservableObject {
         }
 
     public func trackScreen(screenName: String, positions: [String]? = nil) async {
-        var accessToken = UserDefaults.standard.string(forKey: "accessToken")
+        var accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys")
 
         for _ in 0..<5 {
                 if accessToken != nil { break }
-                try? await Task.sleep(nanoseconds: 1_000_000_000)  // Wait 1 sec
-                accessToken = UserDefaults.standard.string(forKey: "accessToken")
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys")
             }
 
             guard let accessToken else {
@@ -87,7 +102,7 @@ public class AppStorys: ObservableObject {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body, options: [])
 
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, _) = try await session.data(for: request)
 
             if let jsonString = String(data: data, encoding: .utf8) {
             }
@@ -104,7 +119,7 @@ public class AppStorys: ObservableObject {
 
     public func trackUser(campaigns: [String], attributes: [[String: Any]]?) async {
         guard let userID = UserDefaults.standard.string(forKey: "userID"),
-              let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+              let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
             return
         }
 
@@ -124,25 +139,24 @@ public class AppStorys: ObservableObject {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body, options: [])
 
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, _) = try await session.data(for: request)
             
             if let jsonString = String(data: data, encoding: .utf8) {
                    }
             
             let decodedResponse = try JSONDecoder().decode(TrackUserResponseTwo.self, from: data)
-            
             DispatchQueue.main.async {
                 self.banCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BAN" }
                 self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
                 self.csatCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "CSAT" }
+                self.pipCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "PIP" }
             }
         } catch {
         }
     }
-
     
     func trackAction(type: ActionType, campaignID: String, widgetID : String?) async {
-        guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+        guard let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
             return
         }
 
@@ -175,7 +189,7 @@ public class AppStorys: ObservableObject {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 return
             }
@@ -204,7 +218,7 @@ public class AppStorys: ObservableObject {
     }
 
     public func trackEvents(eventType: String, campaignId: String? = nil, metadata: [String: Any]? = nil) {
-        guard let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
+        guard let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
             return
         }
         guard let userID = UserDefaults.standard.string(forKey: "userID") else {
@@ -235,7 +249,7 @@ public class AppStorys: ObservableObject {
                 request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
               
-                let task = URLSession.shared.dataTask(with: request) { data, response, error in
+                let task = session.dataTask(with: request) { data, response, error in
                     if let error = error {
                         return
                     }
@@ -319,9 +333,14 @@ struct CampaignTwo: Codable {
             if let csatDetails = try? container.decode(DetailsCSAT.self, forKey: .details) {
                 self.details = .csat(csatDetails)
             } else {
-//                print("Warning: Failed to decode CSAT details, setting as unknown")
                 self.details = .unknown
             }
+//        case "PIP":
+//            if let pipDetails = try? container.decode(DetailsPip.self, forKey: .details) {
+//                self.details = .pip(pipDetails)
+//            } else {
+//                self.details = .unknown
+//            }
 
         default:
             self.details = .unknown
@@ -341,6 +360,8 @@ struct CampaignTwo: Codable {
             try container.encode(widgetDetails, forKey: .details)
         case .csat(let csatDetails):
             try container.encode(csatDetails, forKey: .details)
+//        case .pip(let pipDetails):
+//            try container.encode(pipDetails, forKey: .details)
         case .unknown:
             break
         }
@@ -352,6 +373,7 @@ enum CampaignDetailsTwo {
     case banner(Details)
     case widget(CampaignDetailsForWidget)
     case csat(DetailsCSAT)
+//    case pip(DetailsPip)
     case unknown
     
     var widgetType: String? {
