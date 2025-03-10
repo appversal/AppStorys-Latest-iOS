@@ -1,6 +1,3 @@
-import SwiftUI
-
-import SDWebImageSwiftUI
 
 import SwiftUI
 import SDWebImageSwiftUI

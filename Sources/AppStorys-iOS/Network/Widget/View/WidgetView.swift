@@ -8,8 +8,6 @@ public struct WidgetView: View {
     @State private var images: [WidgetImage] = []
     @State private var selectedIndex = 0
     @State private var campaignID: String?
-    
-    // Track which images have been viewed to prevent multiple views from being tracked
     @State private var viewedImageIDs: Set<String> = []
 
     // Added position property to filter the widget campaign
@@ -27,7 +25,7 @@ public struct WidgetView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 0) {
             if images.isEmpty {
                 ProgressView()
                     .frame(height: widgetHeight)
@@ -37,82 +35,78 @@ public struct WidgetView: View {
                     TabView(selection: $selectedIndex) {
                         ForEach(0..<images.count / 2, id: \.self) { index in
                             HStack(spacing: 0) {
-                                // Show two images at a time
+                             
                                 WebImage(url: URL(string: images[index * 2].imageURL))
                                     .resizable()
-                                    .aspectRatio(contentMode: .fill)
+                                    .aspectRatio(contentMode: .fit)
                                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                     .padding(.horizontal,10)
-                                    
+                                    .padding(.leading,10)
                                     .onTapGesture {
                                         didTapWidgetImage(at: index * 2)
                                     }
                                     .onAppear {
-                                        // Only track if the image is visible
+                                       
                                         if index == selectedIndex {
-//                                            print("index * 2 : \(index * 2)")
                                             didViewWidgetImage(at: index * 2)
                                         }
                                     }
 
                                 WebImage(url: URL(string: images[index * 2 + 1].imageURL))
                                     .resizable()
-                                    .aspectRatio(contentMode: .fill)
+                                    .aspectRatio(contentMode: .fit)
                                     .clipShape(RoundedRectangle(cornerRadius: 16))
                                     .onTapGesture {
                                         didTapWidgetImage(at: index * 2 + 1)
                                     }
                                     .padding(.horizontal,10)
-                                   
+                                    .padding(.trailing,10)
                                     .onAppear {
-                                        // Only track if the image is visible
+                                        
                                         if index == selectedIndex {
-//                                            print("index * 2 : \(index * 2+1)")
+
                                             didViewWidgetImage(at: index * 2 + 1)
                                         }
                                     }
-                            }.padding(.top, 5)
-                            .padding(.leading,5)
-                            .padding(.trailing,5)
-                            .padding(.bottom, 10)// Remove padding around the images
+                            }
+                            .padding(.bottom,10)
                             .tag(index)
 
                         }
                     }
                    
                     .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-                    .frame(height: widgetHeight+50)
+                    .frame(height: widgetHeight+20)
                 } else {
-                    // For Full widgets, show one image at a time
+                  
                     TabView(selection: $selectedIndex) {
                         ForEach(Array(images.enumerated()), id: \.offset) { index, image in
                             WebImage(url: URL(string: image.imageURL))
                                 .resizable()
-                                .aspectRatio(contentMode: .fill)
+                                .padding(.leading,20)
+                                .padding(.trailing,20)
+                                .scaledToFit()
+                                .frame(maxWidth: .infinity)
                                 .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .padding(.horizontal)
-                                .padding(.vertical)
                                 .tag(index)
                                 .onTapGesture {
                                     didTapWidgetImage(at: index)
                                 }
                                 .onAppear {
-                                    // Only track if the image is visible
                                     if index == selectedIndex {
-//                                        print("index  : \(index)")
                                         didViewWidgetImage(at: index)
                                     }
                                 }
+                                
                         }
                     }
-                   
                     .tabViewStyle(.page(indexDisplayMode: .never))
-                    .frame(height: widgetHeight+50)
+                    .frame(height: widgetHeight+20)
                 }
+
 
                 if images.count > 1 {
                     HStack(spacing: 6) {
-                        // For half widgets, only run the loop till half the number of images
                         let numberOfDots = isHalfWidget() ? (images.count + 1) / 2 : images.count
                         
                         ForEach(0..<numberOfDots, id: \.self) { index in
@@ -122,23 +116,24 @@ public struct WidgetView: View {
                                 .foregroundColor(index == selectedIndex ? .black : .gray.opacity(0.5))
                                 .animation(.easeInOut(duration: 0.3), value: selectedIndex)
                         }
-                    }
+                    }.padding(.top,15)
+                   
+                    .transition(.opacity)
                 }
+
 
             }
         }
-       
+        
         .frame(height: widgetHeight + 50)
         .onAppear {
             Task {
-//                print("🚀 onAppear triggered")
+
                 await loadWidgetCampaign()
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // Give API time to update
-//                print("🛑 widgetCampaigns count after fetch: \(apiService.widgetCampaigns.count)")
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 if !apiService.widgetCampaigns.isEmpty {
                     updateWidgetCampaign()
                 } else {
-//                    print("❌ No campaigns found after fetching")
                 }
                 
                     startAutoSlide()

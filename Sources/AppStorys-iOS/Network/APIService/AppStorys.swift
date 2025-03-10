@@ -14,6 +14,7 @@ public class AppStorys: ObservableObject {
     @Published var campaigns: [String] = []
     @Published var widgetCampaigns: [CampaignTwo] = []
     @Published var banCampaigns: [CampaignTwo] = []
+    @Published var csatCampaigns: [CampaignTwo] = []
     
     public enum Endpoints: String {
             case validateAccount = "/validate-account/"
@@ -62,17 +63,18 @@ public class AppStorys: ObservableObject {
     public func trackScreen(screenName: String, positions: [String]? = nil) async {
         var accessToken = UserDefaults.standard.string(forKey: "accessToken")
 
-        // 🔄 Retry fetching access token if missing
-        if accessToken == nil {
-            print("🔄 Retrying to fetch access token...")
-            try? await Task.sleep(nanoseconds: 1_000_000_000)  // Wait 1 sec
-            accessToken = UserDefaults.standard.string(forKey: "accessToken")
-        }
+        for _ in 0..<5 {
+                if accessToken != nil { break }
+                print("🔄 Waiting for access token...")
+                try? await Task.sleep(nanoseconds: 1_000_000_000)  // Wait 1 sec
+                accessToken = UserDefaults.standard.string(forKey: "accessToken")
+            }
 
-        guard let accessToken else {
-            print("❌ Still no access token, aborting trackScreen")
-            return
-        }
+            guard let accessToken else {
+                print("❌ No access token, skipping trackScreen")
+                return
+            }
+
 
         let url = URL(string: "https://backend.appstorys.com/api/v1/users/track-screen/")!
         var request = URLRequest(url: url)
@@ -88,14 +90,19 @@ public class AppStorys: ObservableObject {
 
         do {
             let (data, _) = try await URLSession.shared.data(for: request)
-            let decodedResponse = try JSONDecoder().decode(TrackScreenResponse.self, from: data)
-            let campaigns = decodedResponse.campaigns
 
-//            print("✅ trackScreen completed, calling trackUser")
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("📢 First-time API Response: \(jsonString)")
+            }
+
+            let decodedResponse = try JSONDecoder().decode(TrackScreenResponse.self, from: data)
+            let campaigns = decodedResponse.campaigns ?? []
+
             await trackUser(campaigns: campaigns, attributes: nil)
         } catch {
-            print("❌ Error in trackScreen: \(error)")
+            print("❌ Error in trackScreen (First Run): \(error)")
         }
+
     }
 
 
@@ -123,13 +130,19 @@ public class AppStorys: ObservableObject {
 
         do {
             let (data, _) = try await URLSession.shared.data(for: request)
+            
+            if let jsonString = String(data: data, encoding: .utf8) {
+                       print("📢 Raw JSON response: \(jsonString)")
+                   }
+            
             let decodedResponse = try JSONDecoder().decode(TrackUserResponseTwo.self, from: data)
             
             DispatchQueue.main.async {
-//                print("📢 Full API response: \(decodedResponse)")
+                print("📢 Full API response: \(decodedResponse)")
                 self.banCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BAN" }
                 self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
-//                print("📢 Widget campaigns after filtering: \(self.widgetCampaigns.count)")
+                self.csatCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "CSAT" }
+                print("📢 csat campaigns \(self.csatCampaigns)")
             }
         } catch {
 //           print("❌ Error in trackUser: \(error)")
@@ -315,6 +328,14 @@ struct CampaignTwo: Codable {
             self.details = .banner(try container.decode(Details.self, forKey: .details))
         case "WID":
             self.details = .widget(try container.decode(CampaignDetailsForWidget.self, forKey: .details))
+        case "CSAT":
+            if let csatDetails = try? container.decode(DetailsCSAT.self, forKey: .details) {
+                self.details = .csat(csatDetails)
+            } else {
+                print("Warning: Failed to decode CSAT details, setting as unknown")
+                self.details = .unknown
+            }
+
         default:
             self.details = .unknown
         }
@@ -331,6 +352,8 @@ struct CampaignTwo: Codable {
             try container.encode(bannerDetails, forKey: .details)
         case .widget(let widgetDetails):
             try container.encode(widgetDetails, forKey: .details)
+        case .csat(let csatDetails):
+            try container.encode(csatDetails, forKey: .details)
         case .unknown:
             break
         }
@@ -341,6 +364,7 @@ struct CampaignTwo: Codable {
 enum CampaignDetailsTwo {
     case banner(Details)
     case widget(CampaignDetailsForWidget)
+    case csat(DetailsCSAT)
     case unknown
     
     var widgetType: String? {
