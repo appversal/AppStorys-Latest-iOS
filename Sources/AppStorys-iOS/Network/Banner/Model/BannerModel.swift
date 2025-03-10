@@ -27,15 +27,13 @@ struct Campaign: Codable {
         id = try container.decode(String.self, forKey: .id)
         campaignType = try container.decode(String.self, forKey: .campaignType)
 
-        // Attempt to decode details as a single object
         if let singleDetails = try? container.decode(Details.self, forKey: .details) {
             details = singleDetails
         }
-        // If decoding as a single object fails, try decoding as an array and take the first item
+
         else if let arrayDetails = try? container.decode([Details].self, forKey: .details), let firstDetail = arrayDetails.first {
             details = firstDetail
         }
-        // If both fail, set details to nil
         else {
             details = nil
         }

@@ -10,7 +10,6 @@ public struct WidgetView: View {
     @State private var campaignID: String?
     @State private var viewedImageIDs: Set<String> = []
 
-    // Added position property to filter the widget campaign
     var position: String
 
     private enum Constants {
@@ -151,65 +150,47 @@ public struct WidgetView: View {
 
 
     private func loadWidgetCampaign() async {
-        // Your async loading logic here
     }
 
     private func updateWidgetCampaign() {
         guard let widgetCampaign = apiService.widgetCampaigns.first(where: { $0.position == position }) else {
-//            print("❌ No widget campaign found for position: \(position)")
             return
         }
-        
-//        print("✅ Found widget campaign: \(widgetCampaign)")
+
         campaignID = widgetCampaign.id
 
         guard case let .widget(details) = widgetCampaign.details else {
-//            print("❌ Campaign details not of type .widget")
             return
         }
 
         DispatchQueue.main.async {
             self.widgetHeight = CGFloat(details.height ?? 150)
             self.images = details.widgetImages.sorted { $0.order < $1.order }
-//            print("✅ Widget images loaded: \(self.images.count)")
         }
     }
 
 
     private func startAutoSlide() {
-//        print("🟢 Starting auto-slide...")
-
         Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
-//            print("\n🔄 Auto-slide triggered")
 
             DispatchQueue.main.async {
-//                print("📌 Current selectedIndex: \(self.selectedIndex)")
-                
+
                 let isHalf = self.isHalfWidget()
                 let totalImages = self.images.count
-
-                // ✅ Ensure we do not divide by zero
                 let maxIndex: Int
                 if totalImages == 1 {
-//                    print("⏸️ Auto-slide skipped (Only one image available)")
-                    return  // ⛔️ Exit early if only one image exists
+                    return
                 } else if isHalf {
-                    maxIndex = max(1, totalImages / 2)  // ✅ Ensure at least 1
+                    maxIndex = max(1, totalImages / 2)
                 } else {
                     maxIndex = totalImages
                 }
-
-//                print("🖼️ Widget Type: \(isHalf ? "Half" : "Full")")
-//                print("🖼️ Total Images: \(totalImages), Max Index: \(maxIndex)")
-
                 guard maxIndex > 0 else {
-//                    print("⚠️ Skipping auto-slide due to zero max index.")
                     return
                 }
 
                 withAnimation {
                     self.selectedIndex = (self.selectedIndex + 1) % maxIndex
-//                    print("➡️ Updated selectedIndex: \(self.selectedIndex)")
                 }
             }
         }
@@ -217,9 +198,6 @@ public struct WidgetView: View {
 
 
     private func isHalfWidget() -> Bool {
-        // Determine if widget type is "half"
-        
-        
         return apiService.widgetCampaigns.first(where: { $0.position == position })?.details.widgetType == "half"
     }
 
@@ -227,14 +205,12 @@ public struct WidgetView: View {
         guard let campaignID else { return }
         
         if isHalfWidget() {
-            // For half widgets, each `selectedIndex` represents a pair of images
             let firstImageIndex = index * 2
             let secondImageIndex = firstImageIndex + 1
             
             trackView(for: firstImageIndex)
             trackView(for: secondImageIndex)
         } else {
-            // For full widgets, each `selectedIndex` represents a single image
             trackView(for: index)
         }
     }
@@ -244,15 +220,12 @@ public struct WidgetView: View {
         
         let viewedImage = images[index]
 
-        // Prevent duplicate view tracking
         if viewedImageIDs.contains(viewedImage.id) {
             return
         }
 
         Task {
             try await apiService.trackAction(type: .view, campaignID: campaignID!, widgetID: viewedImage.id)
-            
-            // Mark the image as viewed
             DispatchQueue.main.async {
                 self.viewedImageIDs.insert(viewedImage.id)
             }
@@ -262,8 +235,6 @@ public struct WidgetView: View {
 
     private func didTapWidgetImage(at index: Int) {
         guard let campaignID, let tappedImage = images[safe: index] else { return }
-
-        // Track the click action
         Task {
             try await apiService.trackAction(type: .click, campaignID: campaignID, widgetID: tappedImage.id)
         }

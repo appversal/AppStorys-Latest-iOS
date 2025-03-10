@@ -53,7 +53,7 @@ public class AppStorys: ObservableObject {
                     UserDefaults.standard.set(decodedResponse.access_token, forKey: "accessToken")
                     UserDefaults.standard.set(decodedResponse.refresh_token, forKey: "refreshToken")
                     
-                    print("✅ Access Token saved: \(decodedResponse.access_token)")
+//                    print("✅ Access Token saved: \(decodedResponse.access_token)")
                 }
             } catch {
                
@@ -65,13 +65,11 @@ public class AppStorys: ObservableObject {
 
         for _ in 0..<5 {
                 if accessToken != nil { break }
-                print("🔄 Waiting for access token...")
                 try? await Task.sleep(nanoseconds: 1_000_000_000)  // Wait 1 sec
                 accessToken = UserDefaults.standard.string(forKey: "accessToken")
             }
 
             guard let accessToken else {
-                print("❌ No access token, skipping trackScreen")
                 return
             }
 
@@ -92,7 +90,6 @@ public class AppStorys: ObservableObject {
             let (data, _) = try await URLSession.shared.data(for: request)
 
             if let jsonString = String(data: data, encoding: .utf8) {
-                print("📢 First-time API Response: \(jsonString)")
             }
 
             let decodedResponse = try JSONDecoder().decode(TrackScreenResponse.self, from: data)
@@ -100,7 +97,6 @@ public class AppStorys: ObservableObject {
 
             await trackUser(campaigns: campaigns, attributes: nil)
         } catch {
-            print("❌ Error in trackScreen (First Run): \(error)")
         }
 
     }
@@ -109,7 +105,6 @@ public class AppStorys: ObservableObject {
     public func trackUser(campaigns: [String], attributes: [[String: Any]]?) async {
         guard let userID = UserDefaults.standard.string(forKey: "userID"),
               let accessToken = UserDefaults.standard.string(forKey: "accessToken") else {
-            print("Error: No access token or user ID")
             return
         }
 
@@ -132,20 +127,16 @@ public class AppStorys: ObservableObject {
             let (data, _) = try await URLSession.shared.data(for: request)
             
             if let jsonString = String(data: data, encoding: .utf8) {
-                       print("📢 Raw JSON response: \(jsonString)")
                    }
             
             let decodedResponse = try JSONDecoder().decode(TrackUserResponseTwo.self, from: data)
             
             DispatchQueue.main.async {
-                print("📢 Full API response: \(decodedResponse)")
                 self.banCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BAN" }
                 self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
                 self.csatCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "CSAT" }
-                print("📢 csat campaigns \(self.csatCampaigns)")
             }
         } catch {
-//           print("❌ Error in trackUser: \(error)")
         }
     }
 
@@ -176,13 +167,10 @@ public class AppStorys: ObservableObject {
             "widget_image" : widgetID
         ]
 
-        // Convert body to JSON
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body, options: .prettyPrinted) else {
             return
         }
         request.httpBody = jsonData
-
-        // Debug: Print request JSON
         if let jsonString = String(data: jsonData, encoding: .utf8) {
         }
 
@@ -223,7 +211,6 @@ public class AppStorys: ObservableObject {
             return
         }
 
-            // Build the request body
             var requestBody: [String: Any] = [
                 "user_id": userID,
                 "event": eventType
@@ -332,7 +319,7 @@ struct CampaignTwo: Codable {
             if let csatDetails = try? container.decode(DetailsCSAT.self, forKey: .details) {
                 self.details = .csat(csatDetails)
             } else {
-                print("Warning: Failed to decode CSAT details, setting as unknown")
+//                print("Warning: Failed to decode CSAT details, setting as unknown")
                 self.details = .unknown
             }
 
