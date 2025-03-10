@@ -9,7 +9,7 @@ public struct WidgetView: View {
     @State private var selectedIndex = 0
     @State private var campaignID: String?
     @State private var viewedImageIDs: Set<String> = []
-
+    @State private var timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     var position: String
 
     private enum Constants {
@@ -24,7 +24,7 @@ public struct WidgetView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 20) {
             if images.isEmpty {
                 ProgressView()
                     .frame(height: widgetHeight)
@@ -33,14 +33,12 @@ public struct WidgetView: View {
 
                     TabView(selection: $selectedIndex) {
                         ForEach(0..<images.count / 2, id: \.self) { index in
-                            HStack(spacing: 0) {
+                            HStack(spacing: 14) {
                              
                                 WebImage(url: URL(string: images[index * 2].imageURL))
                                     .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                    .padding(.horizontal,10)
-                                    .padding(.leading,10)
+                                    .scaledToFill()
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                     .onTapGesture {
                                         didTapWidgetImage(at: index * 2)
                                     }
@@ -53,13 +51,11 @@ public struct WidgetView: View {
 
                                 WebImage(url: URL(string: images[index * 2 + 1].imageURL))
                                     .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                    .scaledToFill()
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
                                     .onTapGesture {
                                         didTapWidgetImage(at: index * 2 + 1)
                                     }
-                                    .padding(.horizontal,10)
-                                    .padding(.trailing,10)
                                     .onAppear {
                                         
                                         if index == selectedIndex {
@@ -67,26 +63,22 @@ public struct WidgetView: View {
                                             didViewWidgetImage(at: index * 2 + 1)
                                         }
                                     }
-                            }
-                            .padding(.bottom,10)
+                            }.padding(14)
                             .tag(index)
 
                         }
                     }
                    
                     .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-                    .frame(height: widgetHeight+20)
+                    .frame(height: widgetHeight+10)
                 } else {
                   
                     TabView(selection: $selectedIndex) {
                         ForEach(Array(images.enumerated()), id: \.offset) { index, image in
                             WebImage(url: URL(string: image.imageURL))
                                 .resizable()
-                                .padding(.leading,20)
-                                .padding(.trailing,20)
-                                .scaledToFit()
-                                .frame(maxWidth: .infinity)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                                scaledToFill()
+                                .clipShape(RoundedRectangle(cornerRadius: 18))
                                 .tag(index)
                                 .onTapGesture {
                                     didTapWidgetImage(at: index)
@@ -97,34 +89,35 @@ public struct WidgetView: View {
                                     }
                                 }
                                 
-                        }
+                        }.padding(14)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
-                    .frame(height: widgetHeight+20)
+                    .frame(height:widgetHeight+10 ?? 100)
                 }
 
 
                 if images.count > 1 {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) { // Reduced spacing for a compact look
                         let numberOfDots = isHalfWidget() ? (images.count + 1) / 2 : images.count
-                        
+
                         ForEach(0..<numberOfDots, id: \.self) { index in
                             RoundedRectangle(cornerRadius: Constants.dotCornerRadius)
-                                .frame(width: index == selectedIndex ? Constants.selectedDotWidth : Constants.dotDefaultSize,
-                                       height: Constants.dotDefaultSize)
+                                .frame(
+                                    width: index == selectedIndex ? 8 : 5, // Decreased width
+                                    height: 5 // Decreased height
+                                )
                                 .foregroundColor(index == selectedIndex ? .black : .gray.opacity(0.5))
                                 .animation(.easeInOut(duration: 0.3), value: selectedIndex)
                         }
-                    }.padding(.top,15)
-                   
+                    }
+                    .padding(.top, 6) // Slightly reduced padding
                     .transition(.opacity)
                 }
 
 
+
             }
         }
-        
-        .frame(height: widgetHeight + 50)
         .onAppear {
             Task {
 
@@ -146,6 +139,20 @@ public struct WidgetView: View {
             }
 
         }
+        .onReceive(timer) { _ in
+            guard !images.isEmpty else { return }
+
+            let isHalf = isHalfWidget()
+            let totalImages = images.count
+            let maxIndex = isHalf ? (totalImages / 2) : totalImages
+
+            guard maxIndex > 0 else { return }
+
+            withAnimation {
+                selectedIndex = (selectedIndex + 1) % maxIndex
+            }
+        }
+
     }
 
 
@@ -171,29 +178,7 @@ public struct WidgetView: View {
 
 
     private func startAutoSlide() {
-        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
-
-            DispatchQueue.main.async {
-
-                let isHalf = self.isHalfWidget()
-                let totalImages = self.images.count
-                let maxIndex: Int
-                if totalImages == 1 {
-                    return
-                } else if isHalf {
-                    maxIndex = max(1, totalImages / 2)
-                } else {
-                    maxIndex = totalImages
-                }
-                guard maxIndex > 0 else {
-                    return
-                }
-
-                withAnimation {
-                    self.selectedIndex = (self.selectedIndex + 1) % maxIndex
-                }
-            }
-        }
+        timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     }
 
 
