@@ -150,6 +150,7 @@ public class AppStorys: ObservableObject {
                 self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
                 self.csatCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "CSAT" }
                 self.pipCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "PIP" }
+                
             }
         } catch {
         }

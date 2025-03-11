@@ -7,44 +7,47 @@
 
 import Foundation
 
-struct TrackUserResponse: Codable {
-    let user_id: String
-    let campaigns: [Campaign]
-}
-struct Campaign: Codable {
-    let id: String
-    let campaignType: String
-    let details: Details?
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case campaignType = "campaign_type"
-        case details
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        campaignType = try container.decode(String.self, forKey: .campaignType)
-
-        if let singleDetails = try? container.decode(Details.self, forKey: .details) {
-            details = singleDetails
-        }
-
-        else if let arrayDetails = try? container.decode([Details].self, forKey: .details), let firstDetail = arrayDetails.first {
-            details = firstDetail
-        }
-        else {
-            details = nil
-        }
-    }
-}
-
 struct Details: Codable {
     let image: String?
     let width: Int?
     let height: Int?
     let link: String?
+    let styling: Styling?
+    let lottieData: String?
 }
 
+struct Styling: Codable {
+    let marginBottom: String?
+    let topLeftRadius: String?
+    let topRightRadius: String?
+    let bottomLeftRadius: String?
+    let bottomRightRadius: String?
+    let enableCloseButton: Bool
 
+    enum CodingKeys: String, CodingKey {
+        case marginBottom, topLeftRadius, topRightRadius, bottomLeftRadius, bottomRightRadius, enableCloseButton
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func decodeStringOrNumber(forKey key: CodingKeys) -> String? {
+            if let intValue = try? container.decode(Int.self, forKey: key) {
+                return String(intValue)
+            } else if let doubleValue = try? container.decode(Double.self, forKey: key) {
+                return String(doubleValue)
+            } else if let stringValue = try? container.decode(String.self, forKey: key) {
+                return stringValue
+            } else {
+                return nil
+            }
+        }
+
+        marginBottom = decodeStringOrNumber(forKey: .marginBottom)
+        topLeftRadius = decodeStringOrNumber(forKey: .topLeftRadius)
+        topRightRadius = decodeStringOrNumber(forKey: .topRightRadius)
+        bottomLeftRadius = decodeStringOrNumber(forKey: .bottomLeftRadius)
+        bottomRightRadius = decodeStringOrNumber(forKey: .bottomRightRadius)
+
+        enableCloseButton = (try? container.decode(Bool.self, forKey: .enableCloseButton)) ?? false
+    }
+}
