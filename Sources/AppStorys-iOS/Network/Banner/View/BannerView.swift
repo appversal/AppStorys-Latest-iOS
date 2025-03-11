@@ -1,6 +1,12 @@
 import SwiftUI
 import SDWebImageSwiftUI
 
+
+public protocol BannerViewDelegate: AnyObject {
+    func bannerViewDidUpdateHeight(_ height: CGFloat)
+}
+
+
 struct RoundedCorners: Shape {
     var radius: CGFloat
     var corners: UIRectCorner
@@ -17,9 +23,11 @@ struct RoundedCorners: Shape {
 
 public struct BannerView: View {
     @ObservedObject private var apiService: AppStorys
+    weak var delegate: BannerViewDelegate? // Delegate reference
     
-    public init(apiService: AppStorys) {
+    public init(apiService: AppStorys, delegate: BannerViewDelegate?) {
         self.apiService = apiService
+        self.delegate = delegate
     }
     
     public var body: some View {
@@ -27,17 +35,18 @@ public struct BannerView: View {
             if let banCampaign = apiService.banCampaigns.first {
                 if case let .banner(details) = banCampaign.details,
                    let imageUrl = details.image {
-
-                    let imageHeight = details.height ?? 0
+                    
+                    let imageHeight = CGFloat(details.height ?? 200)
                     let validLink = (details.link?.isEmpty == false) ? details.link : nil
 
                     WebImage(url: URL(string: imageUrl))
                         .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: CGFloat(imageHeight)) 
+                        .frame(maxWidth: .infinity, maxHeight: imageHeight)
                         .clipShape(RoundedCorners(radius: 5, corners: [.topLeft, .topRight]))
                         .onAppear {
+                            DispatchQueue.main.async {
+                                delegate?.bannerViewDidUpdateHeight(imageHeight)
+                            }
                             Task {
                                 await apiService.trackAction(type: .view, campaignID: banCampaign.id, widgetID: "")
                             }
@@ -58,5 +67,3 @@ public struct BannerView: View {
         .padding(.horizontal, 0)
     }
 }
-
-
