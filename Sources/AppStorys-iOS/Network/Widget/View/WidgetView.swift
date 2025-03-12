@@ -82,7 +82,7 @@ public struct WidgetView: View {
                 WebImage(url: URL(string: image.imageURL))
                     .resizable()
                     .scaledToFill()
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                     .tag(index)
                     .onTapGesture {
                         didTapWidgetImage(at: index)
@@ -118,7 +118,9 @@ public struct WidgetView: View {
         WebImage(url: URL(string: images[index].imageURL))
             .resizable()
             .scaledToFill()
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .frame(height: widgetHeight)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .onTapGesture {
                 didTapWidgetImage(at: index)
             }
