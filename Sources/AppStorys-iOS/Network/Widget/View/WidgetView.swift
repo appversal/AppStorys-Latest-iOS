@@ -8,7 +8,7 @@ public protocol WidgetViewDelegate: AnyObject {
 
 public struct WidgetView: View {
     @ObservedObject private var apiService: AppStorys
-    @State private var widgetHeight: CGFloat = 150
+    @State private var widgetHeight: CGFloat = 0
     @State private var images: [WidgetImage] = []
     @State private var selectedIndex = 0
     @State private var campaignID: String?
@@ -17,6 +17,7 @@ public struct WidgetView: View {
     var onHeightUpdate: ((CGFloat) -> Void)?
     var position: String
     weak var delegate: WidgetViewDelegate?
+    @State private var imageHeight: CGFloat? = nil
     
     private enum Constants {
         static let dotDefaultSize: CGFloat = 10
@@ -81,7 +82,9 @@ public struct WidgetView: View {
             ForEach(Array(images.enumerated()), id: \..offset) { index, image in
                 WebImage(url: URL(string: image.imageURL))
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: widgetHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .tag(index)
                     .onTapGesture {
@@ -91,7 +94,7 @@ public struct WidgetView: View {
                         didViewWidgetImage(at: index)
                     }
             }
-            .padding(14)
+            
         }
         .onChange(of: selectedIndex) { newIndex in
             didViewWidgetImage(at: newIndex)
@@ -117,7 +120,8 @@ public struct WidgetView: View {
     private func widgetImageView(at index: Int) -> some View {
         WebImage(url: URL(string: images[index].imageURL))
             .resizable()
-            .scaledToFill()
+            .scaledToFit()
+            .frame(maxWidth: .infinity)
             .frame(height: widgetHeight)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -139,17 +143,63 @@ public struct WidgetView: View {
     }
     
     private func updateWidgetCampaign() {
-        if let widgetCampaign = apiService.widgetCampaigns.first(where: { $0.position == position }),
-           case let .widget(details) = widgetCampaign.details {
-            self.images = details.widgetImages.sorted { $0.order < $1.order }
-            self.widgetHeight = CGFloat(details.height ?? 150)
-            delegate?.widgetViewDidUpdateHeight(self.widgetHeight+30)
-            if self.images.count == 1 {
-                didViewWidgetImage(at: 0)
-            }
+//        print("Updating Widget Campaign for position: \(position)")
+//        
+        if let widgetCampaign = apiService.widgetCampaigns.first(where: { $0.position == position }) {
+//            print("Found widget campaign for position: \(position)")
             
+            if case let .widget(details) = widgetCampaign.details {
+                self.images = details.widgetImages!.sorted { $0.order < $1.order }
+//                print("Total images found: \(self.images.count)")
+                
+                if let backendHeight = details.height {
+                    // Use the height from the backend if available
+                    self.widgetHeight = CGFloat(backendHeight)
+//                    print("Using backend height: \(self.widgetHeight)")
+                    delegate?.widgetViewDidUpdateHeight(self.widgetHeight + 30)
+                } else if let firstImageURL = images.first?.imageURL, let url = URL(string: firstImageURL) {
+                    // Fetch image size to determine height dynamically
+//                    print("Fetching image from URL: \(url)")
+                    
+                    SDWebImageManager.shared.loadImage(
+                        with: url,
+                        options: .highPriority,
+                        progress: nil
+                    ) { image, _, _, _, _, _ in
+                        if let image = image {
+                            DispatchQueue.main.async {
+                                let intrinsicWidth = image.size.width
+                                let intrinsicHeight = image.size.height
+                                let screenWidth = UIScreen.main.bounds.width
+                                
+                                let aspectRatio = intrinsicHeight / intrinsicWidth
+                                let calculatedHeight = screenWidth * aspectRatio
+                                
+                                self.widgetHeight = calculatedHeight
+//                                print("Image loaded successfully")
+//                                print("Image dimensions - Width: \(intrinsicWidth), Height: \(intrinsicHeight)")
+//                                print("Calculated widget height: \(self.widgetHeight)")
+                                
+                                delegate?.widgetViewDidUpdateHeight(self.widgetHeight + 30)
+                            }
+                        } else {
+//                            print("Failed to load image from URL: \(url)")
+                        }
+                    }
+                }
+                
+                if self.images.count == 1 {
+//                    print("Only one image available, calling didViewWidgetImage(at: 0)")
+                    didViewWidgetImage(at: 0)
+                }
+            } else {
+//                print("No valid widget details found for position: \(position)")
+            }
+        } else {
+//            print("No widget campaign found for position: \(position)")
         }
     }
+
     
     private func didViewWidgetImage(at index: Int) {
         guard index < images.count else { return }
@@ -168,14 +218,20 @@ public struct WidgetView: View {
     private func didTapWidgetImage(at index: Int) {
         guard index < images.count else { return }
         let imageID = images[index].id
-        if let widgetCampaign = apiService.widgetCampaigns.first(where: { $0.position == position }) {
-            Task {
+        guard let widgetCampaign = apiService.widgetCampaigns.first(where: { $0.position == position }) else {
+            return
+        }
+        Task {
+            do {
                 try await apiService.trackAction(type: .click, campaignID: widgetCampaign.id, widgetID: imageID)
+            } catch {
+//                print("Error tracking action: \(error.localizedDescription)")
             }
         }
-        if let url = URL(string: images[index].link) {
-            UIApplication.shared.open(url)
+        if let urlString = images[index].link {
+            apiService.clickEvent(link: urlString, campaignId: widgetCampaign.id, widgetImageId: imageID)
         }
+        
     }
     
     private func startAutoSlide() {

@@ -3,7 +3,7 @@ import Foundation
 struct WidgetImage: Codable {
     let id: String
     let imageURL: String
-    let link: String
+    let link: LinkType?
     let order: Int
 
     enum CodingKeys: String, CodingKey {

@@ -5,7 +5,7 @@ struct CampaignDetailsForWidget: Codable {
     let type: String
     let width: Int?
     let height: Int?
-    let widgetImages: [WidgetImage]
+    let widgetImages: [WidgetImage]?
 
     enum CodingKeys: String, CodingKey {
         case id

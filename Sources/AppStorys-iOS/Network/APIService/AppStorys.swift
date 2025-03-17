@@ -8,11 +8,15 @@
 import SwiftUI
 import Foundation
 
+public class DeepLinkManager {
+    @MainActor public static let shared = DeepLinkManager()
+    public var navigateToScreen: ((String) -> Void)?
+}
+
 @MainActor
 public class AppStorys: ObservableObject {
     
     private let session: URLSession
-
     var testSession: URLSession {
         return session
     }
@@ -48,6 +52,7 @@ public class AppStorys: ObservableObject {
         }
 
     public func validateAccount(appID: String, accountID: String) async {
+       
             let url = URL(string: "https://backend.appstorys.com/api/v1/users\(Endpoints.validateAccount.rawValue)")!
             
             var request = URLRequest(url: url)
@@ -71,11 +76,11 @@ public class AppStorys: ObservableObject {
                     UserDefaults.standard.set(decodedResponse.refresh_token, forKey: "refreshTokenAppStorys")
                 }
             } catch {
-               
             }
         }
 
     public func trackScreen(screenName: String, positions: [String]? = nil) async {
+        
         var accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys")
 
         for _ in 0..<5 {
@@ -118,6 +123,7 @@ public class AppStorys: ObservableObject {
 
 
     public func trackUser(campaigns: [String], attributes: [[String: Any]]?) async {
+
         guard let userID = UserDefaults.standard.string(forKey: "userIDAppStorys"),
               let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
             return
@@ -139,20 +145,70 @@ public class AppStorys: ObservableObject {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body, options: [])
 
         do {
-            let (data, _) = try await session.data(for: request)
-            
+            let (data, response) = try await session.data(for: request)
             if let jsonString = String(data: data, encoding: .utf8) {
-                   }
-            
+            }
+
             let decodedResponse = try JSONDecoder().decode(TrackUserResponseTwo.self, from: data)
+
             DispatchQueue.main.async {
                 self.banCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BAN" }
                 self.widgetCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "WID" }
                 self.csatCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "CSAT" }
                 self.pipCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "PIP" }
-                
             }
         } catch {
+        }
+    }
+
+    func clickEvent(link: LinkType?, campaignId: String, widgetImageId: String? = nil) {
+        guard let link = link else {
+            return
+        }
+        switch link {
+        case .string(let url):
+            if isValidUrl(url) {
+                openUrl(url)
+            } else {
+                if let navigate = DeepLinkManager.shared.navigateToScreen {
+                    navigate(url)
+                } else {
+                }
+            }
+        
+        case .dictionary(let dict):
+            handleDeepLink(json: dict, campaignId: campaignId, widgetImageId: widgetImageId)
+
+        case .none:
+            print("Link is `none` (null or unknown format)")
+        }
+    }
+
+
+    func handleDeepLink(json: [String: Any]?, campaignId: String, widgetImageId: String?) {
+        guard let json = json else { return }
+        let value = json["value"] as? String
+        let type = json["type"] as? String
+        let context = json["context"] as? [String: Any]
+        if let value = value {
+            if let navigate = DeepLinkManager.shared.navigateToScreen {
+                navigate(value)
+            } else {
+            }
+        }
+    }
+
+    func isValidUrl(_ url: String?) -> Bool {
+        guard let urlString = url, let url = URL(string: urlString) else {
+            return false
+        }
+        return UIApplication.shared.canOpenURL(url)
+    }
+
+    func openUrl(_ url: String) {
+        guard let url = URL(string: url) else { return }
+        DispatchQueue.main.async {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
         }
     }
     

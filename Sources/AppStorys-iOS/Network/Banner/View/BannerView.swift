@@ -6,7 +6,6 @@ public protocol BannerViewDelegate: AnyObject {
     func bannerViewDidUpdateHeight(_ height: CGFloat)
 }
 
-
 struct RoundedCorners: Shape {
     var topLeft: CGFloat
     var topRight: CGFloat
@@ -44,30 +43,32 @@ public struct BannerView: View {
     @ObservedObject private var apiService: AppStorys
     weak var delegate: BannerViewDelegate?
     @State private var isBannerVisible: Bool = true
-    
+    @State private var imageHeight: CGFloat? = nil
+    @State private var aspectRatio: CGFloat? = nil
+
     public init(apiService: AppStorys, delegate: BannerViewDelegate?) {
         self.apiService = apiService
         self.delegate = delegate
     }
-    
+
     public var body: some View {
         if isBannerVisible {
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: .bottom) {
                 if let banCampaign = apiService.banCampaigns.first {
                     if case let .banner(details) = banCampaign.details,
                        let imageUrl = details.image {
-                        
-                        let imageHeight = CGFloat(details.height ?? 200)
-                        let validLink = (details.link?.isEmpty == false) ? details.link : nil
                         let styling = details.styling
                         let topLeft = CGFloat(styling?.topLeftRadius.flatMap(Double.init) ?? 0)
                         let topRight = CGFloat(styling?.topRightRadius.flatMap(Double.init) ?? 0)
                         let bottomLeft = CGFloat(styling?.bottomLeftRadius.flatMap(Double.init) ?? 0)
                         let bottomRight = CGFloat(styling?.bottomRightRadius.flatMap(Double.init) ?? 0)
                         let showCloseButton = styling?.enableCloseButton ?? true
+                        
                         WebImage(url: URL(string: imageUrl))
                             .resizable()
-                            .frame(maxWidth: .infinity, maxHeight: imageHeight)
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity)
+                            .frame(height: imageHeight)
                             .clipShape(
                                 RoundedCorners(
                                     topLeft: topLeft,
@@ -78,8 +79,29 @@ public struct BannerView: View {
                             )
                             .padding(.bottom, CGFloat(styling?.marginBottom.flatMap(Double.init) ?? 0))
                             .onAppear {
-                                DispatchQueue.main.async {
-                                    delegate?.bannerViewDidUpdateHeight(imageHeight)
+                                SDWebImageManager.shared.loadImage(
+                                    with: URL(string: imageUrl),
+                                    options: .highPriority,
+                                    progress: nil
+                                ) { image, _, _, _, _, _ in
+                                    if let image = image {
+                                        DispatchQueue.main.async {
+                                            let intrinsicWidth = image.size.width
+                                            let intrinsicHeight = image.size.height
+                                            let screenWidth = UIScreen.main.bounds.width
+                                            
+                                            aspectRatio = intrinsicHeight / intrinsicWidth
+                                            let calculatedHeight = screenWidth * aspectRatio!
+                                            
+                                            if let backendHeight = details.height {
+                                                imageHeight = CGFloat(backendHeight)
+                                            } else {
+                                                imageHeight = calculatedHeight
+                                            }
+                                            
+                                            delegate?.bannerViewDidUpdateHeight(imageHeight!)
+                                        }
+                                    }
                                 }
                                 Task {
                                     await apiService.trackAction(type: .view, campaignID: banCampaign.id, widgetID: "")
@@ -89,9 +111,7 @@ public struct BannerView: View {
                                 Task {
                                     await apiService.trackAction(type: .click, campaignID: banCampaign.id, widgetID: "")
                                 }
-                                if let link = validLink, let url = URL(string: link), UIApplication.shared.canOpenURL(url) {
-                                    UIApplication.shared.open(url)
-                                }
+                                apiService.clickEvent(link: details.link, campaignId: banCampaign.id, widgetImageId: "")
                             }
                         if showCloseButton {
                             Button(action: {
