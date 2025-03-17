@@ -19,24 +19,28 @@ struct Details: Codable {
 
 enum LinkType: Codable {
     case string(String)
-    case dictionary([String: String])
-    case none
+    case dictionary(DeepLinkData)
+    
+    struct DeepLinkData: Codable {
+        let value: String
+        let type: String?
+        let context: [String: String]?
+    }
 
     init(from decoder: Decoder) throws {
-        let container = try? decoder.singleValueContainer()
+        let container = try decoder.singleValueContainer()
 
-        if let stringValue = try? container?.decode(String.self) {
+        if let stringValue = try? container.decode(String.self) {
             self = .string(stringValue)
-        } else if let dictionaryValue = try? container?.decode([String: String].self) {
+        }
+        else if let dictionaryValue = try? container.decode(DeepLinkData.self) {
             self = .dictionary(dictionaryValue)
-        } else if let intValue = try? container?.decode(Int.self) {
-            self = .string(String(intValue))
-        } else if let doubleValue = try? container?.decode(Double.self) {
-            self = .string(String(doubleValue)) 
-        } else if container?.decodeNil() == true {
-            self = .none
-        } else {
-            self = .none
+        }
+        else {
+            throw DecodingError.typeMismatch(LinkType.self, DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unexpected format for `link` field"
+            ))
         }
     }
 
@@ -47,11 +51,10 @@ enum LinkType: Codable {
             try container.encode(value)
         case .dictionary(let value):
             try container.encode(value)
-        case .none:
-            try container.encodeNil()
         }
     }
 }
+
 
 struct Styling: Codable {
     let marginBottom: String?
@@ -78,7 +81,6 @@ struct Styling: Codable {
                 return nil
             }
         }
-
         marginBottom = decodeStringOrNumber(forKey: .marginBottom)
         topLeftRadius = decodeStringOrNumber(forKey: .topLeftRadius)
         topRightRadius = decodeStringOrNumber(forKey: .topRightRadius)

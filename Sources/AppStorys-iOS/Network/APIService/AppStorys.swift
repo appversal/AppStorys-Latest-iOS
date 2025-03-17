@@ -10,7 +10,7 @@ import Foundation
 
 public class DeepLinkManager {
     @MainActor public static let shared = DeepLinkManager()
-    public var navigateToScreen: ((String) -> Void)?
+    public var navigateToScreen: ((String, [String: String]?) -> Void)?
 }
 
 @MainActor
@@ -163,41 +163,30 @@ public class AppStorys: ObservableObject {
 
     func clickEvent(link: LinkType?, campaignId: String, widgetImageId: String? = nil) {
         guard let link = link else {
+            print("❌ No link provided")
             return
         }
+
         switch link {
         case .string(let url):
             if isValidUrl(url) {
                 openUrl(url)
+            } else if let navigate = DeepLinkManager.shared.navigateToScreen {
+                navigate(url, nil)
             } else {
-                if let navigate = DeepLinkManager.shared.navigateToScreen {
-                    navigate(url)
-                } else {
-                }
             }
-        
-        case .dictionary(let dict):
-            handleDeepLink(json: dict, campaignId: campaignId, widgetImageId: widgetImageId)
-
-        case .none:
-            print("Link is `none` (null or unknown format)")
+            
+        case .dictionary(let deepLinkData):
+            handleDeepLink(data: deepLinkData, campaignId: campaignId, widgetImageId: widgetImageId)
         }
     }
 
-
-    func handleDeepLink(json: [String: Any]?, campaignId: String, widgetImageId: String?) {
-        guard let json = json else { return }
-        let value = json["value"] as? String
-        let type = json["type"] as? String
-        let context = json["context"] as? [String: Any]
-        if let value = value {
-            if let navigate = DeepLinkManager.shared.navigateToScreen {
-                navigate(value)
-            } else {
-            }
+    func handleDeepLink(data: LinkType.DeepLinkData, campaignId: String, widgetImageId: String?) {
+        if let navigate = DeepLinkManager.shared.navigateToScreen {
+            navigate(data.value, data.context)
+        } else {
         }
     }
-
     func isValidUrl(_ url: String?) -> Bool {
         guard let urlString = url, let url = URL(string: urlString) else {
             return false
