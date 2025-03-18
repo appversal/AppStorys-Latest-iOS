@@ -45,6 +45,7 @@ public struct BannerView: View {
     @State private var isBannerVisible: Bool = true
     @State private var imageHeight: CGFloat? = nil
     @State private var aspectRatio: CGFloat? = nil
+    @State private var isImageLoaded: Bool = false
 
     public init(apiService: AppStorys, delegate: BannerViewDelegate?) {
         self.apiService = apiService
@@ -85,18 +86,17 @@ public struct BannerView: View {
                                     progress: nil
                                 ) { image, _, _, _, _, _ in
                                     if let image = image {
+                                        print("Image loaded successfully")
                                         DispatchQueue.main.async {
-                                            let intrinsicWidth = image.size.width
-                                            let intrinsicHeight = image.size.height
-                                            let screenWidth = UIScreen.main.bounds.width
-                                            
-                                            aspectRatio = intrinsicHeight / intrinsicWidth
-                                            let calculatedHeight = screenWidth * aspectRatio!
-                                            
-                                            if let backendHeight = details.height {
-                                                imageHeight = CGFloat(backendHeight)
-                                            } else {
+                                            if let width = details.width, let height = details.height {
+                                                let aspectRatio = height / width
+                                                
+                                                let actualWidth = UIScreen.main.bounds.width
+                                                let calculatedHeight =  actualWidth * CGFloat(aspectRatio)
+                                                
                                                 imageHeight = calculatedHeight
+                                            } else {
+                                                imageHeight = CGFloat(details.height!)
                                             }
                                             
                                             delegate?.bannerViewDidUpdateHeight(imageHeight!)

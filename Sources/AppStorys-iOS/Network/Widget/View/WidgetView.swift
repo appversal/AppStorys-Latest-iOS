@@ -25,8 +25,6 @@ public struct WidgetView: View {
         static let selectedDotWidth: CGFloat = 25
     }
     
-  
-        
         public init(apiService: AppStorys, position: String, delegate: WidgetViewDelegate?) {
             self.apiService = apiService
             self.position = position
@@ -152,12 +150,7 @@ public struct WidgetView: View {
                 self.images = details.widgetImages!.sorted { $0.order < $1.order }
 //                print("Total images found: \(self.images.count)")
                 
-                if let backendHeight = details.height {
-                    // Use the height from the backend if available
-                    self.widgetHeight = CGFloat(backendHeight)
-//                    print("Using backend height: \(self.widgetHeight)")
-                    delegate?.widgetViewDidUpdateHeight(self.widgetHeight + 30)
-                } else if let firstImageURL = images.first?.imageURL, let url = URL(string: firstImageURL) {
+               if let firstImageURL = images.first?.imageURL, let url = URL(string: firstImageURL) {
                     // Fetch image size to determine height dynamically
 //                    print("Fetching image from URL: \(url)")
                     
@@ -168,22 +161,21 @@ public struct WidgetView: View {
                     ) { image, _, _, _, _, _ in
                         if let image = image {
                             DispatchQueue.main.async {
-                                let intrinsicWidth = image.size.width
-                                let intrinsicHeight = image.size.height
-                                let screenWidth = UIScreen.main.bounds.width
-                                
-                                let aspectRatio = intrinsicHeight / intrinsicWidth
-                                let calculatedHeight = screenWidth * aspectRatio
-                                
-                                self.widgetHeight = calculatedHeight
-//                                print("Image loaded successfully")
-//                                print("Image dimensions - Width: \(intrinsicWidth), Height: \(intrinsicHeight)")
-//                                print("Calculated widget height: \(self.widgetHeight)")
-                                
+                                if let width = details.width, let height = details.height {
+                                    print(width)
+                                    print(height)
+                                    let aspectRatio = height / width
+                                    
+                                    let actualWidth = UIScreen.main.bounds.width
+                                    let calculatedHeight =  actualWidth * CGFloat(aspectRatio)
+                                    widgetHeight = calculatedHeight
+                                } else {
+                                    widgetHeight = CGFloat(details.height!)
+                                }
+                            
                                 delegate?.widgetViewDidUpdateHeight(self.widgetHeight + 30)
                             }
                         } else {
-//                            print("Failed to load image from URL: \(url)")
                         }
                     }
                 }

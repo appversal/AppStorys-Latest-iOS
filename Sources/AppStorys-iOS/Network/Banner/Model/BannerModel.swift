@@ -9,8 +9,8 @@ import Foundation
 
 struct Details: Codable {
     let image: String?
-    let width: Int?
-    let height: Int?
+    let width: Double?
+    let height: Double?
     let link: LinkType
     let styling: Styling?
     let lottieData: String?

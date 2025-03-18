@@ -3,8 +3,8 @@ import Foundation
 struct CampaignDetailsForWidget: Codable {
     let id: String
     let type: String
-    let width: Int?
-    let height: Int?
+    let width: Double?
+    let height: Double?
     let widgetImages: [WidgetImage]?
 
     enum CodingKeys: String, CodingKey {
