@@ -21,6 +21,5 @@ let package = Package(
                 .product(name: "SDWebImageSwiftUI", package: "SDWebImageSwiftUI")
             ]
         )
-
     ]
 )
