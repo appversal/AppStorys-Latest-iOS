@@ -1,6 +1,7 @@
 
 import Foundation
-struct DetailsCSAT: Identifiable, Codable {
+
+struct CsatDetails: Identifiable, Codable {
     let id: String
     let title: String
     let height: Double?
@@ -13,7 +14,7 @@ struct DetailsCSAT: Identifiable, Codable {
     let feedbackOption: FeedbackOptions
     let campaign: String
     let link: String
-
+    
     private enum CodingKeys: String, CodingKey {
         case id, title, height, width, styling
         case thankyouImage = "thankyouImage"

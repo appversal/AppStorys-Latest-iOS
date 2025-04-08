@@ -11,3 +11,4 @@ struct CampaignForWidget: Codable {
         case details
     }
 }
+

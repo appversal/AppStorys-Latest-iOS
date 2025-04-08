@@ -40,18 +40,19 @@ struct RoundedCorners: Shape {
 }
 
 public struct BannerView: View {
+    
     @ObservedObject private var apiService: AppStorys
     weak var delegate: BannerViewDelegate?
     @State private var isBannerVisible: Bool = true
     @State private var imageHeight: CGFloat? = nil
     @State private var aspectRatio: CGFloat? = nil
     @State private var isImageLoaded: Bool = false
-
+    
     public init(apiService: AppStorys, delegate: BannerViewDelegate?) {
         self.apiService = apiService
         self.delegate = delegate
     }
-
+    
     public var body: some View {
         if isBannerVisible {
             ZStack(alignment: .bottom) {
@@ -86,11 +87,9 @@ public struct BannerView: View {
                                     progress: nil
                                 ) { image, _, _, _, _, _ in
                                     if let image = image {
-                                        print("Image loaded successfully")
                                         DispatchQueue.main.async {
                                             if let width = details.width, let height = details.height {
                                                 let aspectRatio = height / width
-                                                
                                                 let actualWidth = UIScreen.main.bounds.width
                                                 let calculatedHeight =  actualWidth * CGFloat(aspectRatio)
                                                 

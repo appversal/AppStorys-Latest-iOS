@@ -1,6 +1,6 @@
 import Foundation
 
-struct CampaignDetailsForWidget: Codable {
+struct WidgetDetails: Codable {
     let id: String
     let type: String
     let width: Double?

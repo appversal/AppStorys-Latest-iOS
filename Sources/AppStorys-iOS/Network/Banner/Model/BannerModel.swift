@@ -3,19 +3,17 @@
 //  AppStorys-iOS
 //
 //  Created by Darshika Gupta on 01/03/25.
-//
 
 import Foundation
 
-struct Details: Codable {
+struct BannerDetails: Codable {
     let image: String?
     let width: Double?
     let height: Double?
     let link: LinkType
-    let styling: Styling?
+    let styling: BannerStyling?
     let lottieData: String?
 }
-
 
 enum LinkType: Codable {
     case string(String)
@@ -56,7 +54,7 @@ enum LinkType: Codable {
 }
 
 
-struct Styling: Codable {
+struct BannerStyling: Codable {
     let marginBottom: String?
     let topLeftRadius: String?
     let topRightRadius: String?
@@ -86,7 +84,6 @@ struct Styling: Codable {
         topRightRadius = decodeStringOrNumber(forKey: .topRightRadius)
         bottomLeftRadius = decodeStringOrNumber(forKey: .bottomLeftRadius)
         bottomRightRadius = decodeStringOrNumber(forKey: .bottomRightRadius)
-
         enableCloseButton = (try? container.decode(Bool.self, forKey: .enableCloseButton)) ?? false
     }
 }

@@ -1,16 +1,16 @@
 import Foundation
 
 struct CampaignDetailsWrapper: Codable {
-    let details: CampaignDetailsForWidget?
+    let details: WidgetDetails?
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
 
-        if let detailsDict = try? container.decode(CampaignDetailsForWidget.self) {
+        if let detailsDict = try? container.decode(WidgetDetails.self) {
             self.details = detailsDict
         }
         
-        else if let detailsArray = try? container.decode([CampaignDetailsForWidget].self), let firstDetail = detailsArray.first {
+        else if let detailsArray = try? container.decode([WidgetDetails].self), let firstDetail = detailsArray.first {
             self.details = firstDetail
         }
        

@@ -25,11 +25,11 @@ public struct WidgetView: View {
         static let selectedDotWidth: CGFloat = 25
     }
     
-        public init(apiService: AppStorys, position: String, delegate: WidgetViewDelegate?) {
-            self.apiService = apiService
-            self.position = position
-            self.delegate = delegate
-        }
+    public init(apiService: AppStorys, position: String, delegate: WidgetViewDelegate?) {
+        self.apiService = apiService
+        self.position = position
+        self.delegate = delegate
+    }
     
     public var body: some View {
         VStack(spacing: 5) {
@@ -141,19 +141,10 @@ public struct WidgetView: View {
     }
     
     private func updateWidgetCampaign() {
-//        print("Updating Widget Campaign for position: \(position)")
-//        
         if let widgetCampaign = apiService.widgetCampaigns.first(where: { $0.position == position }) {
-//            print("Found widget campaign for position: \(position)")
-            
             if case let .widget(details) = widgetCampaign.details {
                 self.images = details.widgetImages!.sorted { $0.order < $1.order }
-//                print("Total images found: \(self.images.count)")
-                
-               if let firstImageURL = images.first?.imageURL, let url = URL(string: firstImageURL) {
-                    // Fetch image size to determine height dynamically
-//                    print("Fetching image from URL: \(url)")
-                    
+                if let firstImageURL = images.first?.imageURL, let url = URL(string: firstImageURL) {
                     SDWebImageManager.shared.loadImage(
                         with: url,
                         options: .highPriority,
@@ -162,17 +153,13 @@ public struct WidgetView: View {
                         if let image = image {
                             DispatchQueue.main.async {
                                 if let width = details.width, let height = details.height {
-                                    print(width)
-                                    print(height)
                                     let aspectRatio = height / width
-                                    
                                     let actualWidth = UIScreen.main.bounds.width
                                     let calculatedHeight =  actualWidth * CGFloat(aspectRatio)
                                     widgetHeight = calculatedHeight
                                 } else {
                                     widgetHeight = CGFloat(details.height!)
                                 }
-                            
                                 delegate?.widgetViewDidUpdateHeight(self.widgetHeight + 30)
                             }
                         } else {
@@ -181,17 +168,14 @@ public struct WidgetView: View {
                 }
                 
                 if self.images.count == 1 {
-//                    print("Only one image available, calling didViewWidgetImage(at: 0)")
                     didViewWidgetImage(at: 0)
                 }
             } else {
-//                print("No valid widget details found for position: \(position)")
             }
         } else {
-//            print("No widget campaign found for position: \(position)")
         }
     }
-
+    
     
     private func didViewWidgetImage(at index: Int) {
         guard index < images.count else { return }
@@ -217,7 +201,6 @@ public struct WidgetView: View {
             do {
                 try await apiService.trackAction(type: .click, campaignID: widgetCampaign.id, widgetID: imageID)
             } catch {
-//                print("Error tracking action: \(error.localizedDescription)")
             }
         }
         if let urlString = images[index].link {

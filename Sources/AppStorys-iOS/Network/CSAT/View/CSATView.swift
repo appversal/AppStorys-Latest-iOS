@@ -5,7 +5,7 @@
 //  Created by Darshika Gupta on 08/03/25.
 
 import SwiftUI
-// MARK: - CSAT View
+
 public struct CsatView: View {
     
     @ObservedObject private var apiService: AppStorys
@@ -20,7 +20,6 @@ public struct CsatView: View {
     public init(apiService: AppStorys) {
         self.apiService = apiService
     }
-    
     
     public var body: some View {
         if showCSAT, let csatCampaign = apiService.csatCampaigns.first {
@@ -47,7 +46,7 @@ public struct CsatView: View {
                             .padding(.horizontal, 20)
                             .transition(.move(edge: .bottom))
                         }
-
+                        
                         if csatLoaded {
                             Button(action: {
                                 showCSAT = false
@@ -72,21 +71,16 @@ public struct CsatView: View {
                         csatLoaded = true
                     }
                     trackAction(campaignID: csatCampaign.id, actionType: .view)
-                    
-                    
-                    
                     scheduleCsatDisplay()
                 }
             }
         }
     }
     
-    
-    // MARK: - Submit Button Update
     private func submitFeedback() {
         if let csatCampaign = apiService.csatCampaigns.first {
             if case let .csat(details) = csatCampaign.details   {
-                captureCsatResponse(csatId: details.id, userId: UserDefaults.standard.string(forKey: "userIDAppStorys")!, rating: selectedStars, feedbackOption: selectedOption, additionalComments: additionalComments)
+                captureCsatResponse(csatId: details.id, userId: KeychainHelper.shared.get(key: "userIDAppStorys")!, rating: selectedStars, feedbackOption: selectedOption, additionalComments: additionalComments)
             }
         }
         showThanks = true
@@ -94,8 +88,8 @@ public struct CsatView: View {
     }
     
     private func captureCsatResponse(csatId: String, userId: String, rating: Int, feedbackOption: String?, additionalComments: String?) {
-        guard let userID = UserDefaults.standard.string(forKey: "userIDAppStorys"),
-              let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
+        guard let userID = KeychainHelper.shared.get(key: "userIDAppStorys"),
+              let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys") else {
             return
         }
         
@@ -125,7 +119,6 @@ public struct CsatView: View {
         }.resume()
     }
     
-    // MARK: - Survey View
     @ViewBuilder
     private func surveyView() -> some View {
         if let csatCampaign = apiService.csatCampaigns.first {
@@ -138,7 +131,7 @@ public struct CsatView: View {
                     
                     Text(details.descriptionText!)
                         .foregroundColor(hexToColor(details.styling!.csatTitleColor))
-
+                    
                     HStack {
                         ForEach(1..<6, id: \.self) { index in
                             Image(systemName: index <= selectedStars ? "star.fill" : "star")
@@ -195,7 +188,7 @@ public struct CsatView: View {
                                 .frame(height: 50)
                             }
                         }
-
+                        
                         TextField("Additional comments", text: $additionalComments)
                             .padding(.vertical, 8)
                             .background(Color.clear)
@@ -206,7 +199,7 @@ public struct CsatView: View {
                                 alignment: .bottom
                             )
                             .padding(.top, 10)
-
+                        
                         Button(action: {
                             submitFeedback()
                             
@@ -215,7 +208,7 @@ public struct CsatView: View {
                             }
                             
                             let campaignID = apiService.csatCampaigns.first?.id ?? ""
-                            let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys")
+                            let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys")
                             
                             
                             
@@ -241,13 +234,13 @@ public struct CsatView: View {
             }
         }
     }
-    // MARK: - Thanks View
+
     @ViewBuilder
     private func thanksView() -> some View {
         if let csatCampaign = apiService.csatCampaigns.first {
             if case let .csat(details) = csatCampaign.details {
                 VStack(spacing: 8) {
-
+                    
                     if let imageUrl = URL(string: details.thankyouImage!), !details.thankyouImage!.isEmpty {
                         AsyncImage(url: imageUrl) { image in
                             image.resizable()
@@ -287,7 +280,7 @@ public struct CsatView: View {
                         }
                         
                         showCSAT = false
-                        UserDefaults.standard.setValue(true, forKey: "csat_loaded")
+                        KeychainHelper.shared.save("true", key: "csat_loaded")
                     }) {
                         Text("Done")
                             .font(.headline)
@@ -303,8 +296,6 @@ public struct CsatView: View {
         }
     }
     
-    
-    // MARK: - CSAT Delay Logic
     private func scheduleCsatDisplay() {
         if let csatCampaign = apiService.csatCampaigns.first {
             if case let .csat(details) = csatCampaign.details {
@@ -319,8 +310,6 @@ public struct CsatView: View {
         
     }
     
-    
-    // MARK: - Color Conversion
     func hexToColor(_ hex: String) -> Color {
         var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         if hexSanitized.hasPrefix("#") {
@@ -338,7 +327,7 @@ public struct CsatView: View {
     
     @MainActor
     func trackAction(campaignID: String, actionType: ActionType) {
-        guard let accessToken = UserDefaults.standard.string(forKey: "accessTokenAppStorys") else {
+        guard let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys") else {
             
             return
         }
