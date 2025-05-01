@@ -237,24 +237,14 @@ struct TabBarTooltipView: View {
         VStack(spacing: 0) {
             VStack {
                 if let imageUrl = tooltip.url, let url = URL(string: imageUrl) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .empty:
-                            ProgressView()
-                        case .success(let image):
-                            image.resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: tooltipWidth, height: tooltipHeight)
-                                .cornerRadius(tooltipCornerRadius)
-                                .clipped()
-                        case .failure:
-                            Text("Failed to load image").foregroundColor(.white)
-                        @unknown default:
-                            EmptyView()
-                        }
-                    }
-                    .frame(width: tooltipWidth, height: tooltipHeight)
-                    .background(Color.clear)
+                    WebImage(url: url)
+                        .resizable()
+                        .indicator(.activity)
+                        .transition(.fade(duration: 0.5))
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: tooltipWidth, height: tooltipHeight)
+                        .cornerRadius(tooltipCornerRadius)
+                        .clipped()
                 } else {
                     Text("No Image Available")
                         .foregroundColor(.white)
@@ -412,4 +402,5 @@ public struct ElementTooltipWrapper<Content: View>: View {
         }
     }
 }
+
 

@@ -16,4 +16,25 @@ struct FloaterDetails: Codable {
     let height: CGFloat?
     let width: CGFloat?
     let position: String?
+    let styling: FloaterStyling?
+}
+
+struct FloaterStyling: Codable {
+    let topLeftRadius: String?
+    let topRightRadius: String?
+    let bottomLeftRadius: String?
+    let bottomRightRadius: String?
+    
+    var topLeftCGFloat: CGFloat {
+        CGFloat(Double(topLeftRadius ?? "") ?? 0)
+    }
+    var topRightCGFloat: CGFloat {
+        CGFloat(Double(topRightRadius ?? "") ?? 0)
+    }
+    var bottomLeftCGFloat: CGFloat {
+        CGFloat(Double(bottomLeftRadius ?? "") ?? 0)
+    }
+    var bottomRightCGFloat: CGFloat {
+        CGFloat(Double(bottomRightRadius ?? "") ?? 0)
+    }
 }

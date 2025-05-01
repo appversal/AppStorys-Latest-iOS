@@ -31,6 +31,8 @@ public class AppStorys: ObservableObject {
     @Published var surveyCampaigns: [CampaignModel] = []
     @Published var storiesCampaigns: [CampaignModel] = []
     @Published var reelsCampaigns: [CampaignModel] = []
+    @Published var bottomSheetsCampaigns: [CampaignModel] = []
+    @Published var modalsCampaigns: [CampaignModel] = []
     
     public init() {
         let config = URLSessionConfiguration.default
@@ -54,7 +56,7 @@ public class AppStorys: ObservableObject {
         KeychainHelper.shared.save(userID, key: "userIDAppStorys")
         await validateAccount(appID: appID, accountID: accountID)
     }
-    
+
     public func validateAccount(appID: String, accountID: String) async {
         let url = URL(string: "https://backend.appstorys.com/api/v1/users\(Endpoints.validateAccount.rawValue)")!
         var request = URLRequest(url: url)
@@ -137,6 +139,7 @@ public class AppStorys: ObservableObject {
         do {
             let (data, response) = try await session.data(for: request)
             if let jsonString = String(data: data, encoding: .utf8) {
+                print(jsonString)
             }
             let decodedResponse = try JSONDecoder().decode(TrackUserResponseTwo.self, from: data)
             
@@ -150,7 +153,9 @@ public class AppStorys: ObservableObject {
                 self.surveyCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "SUR" }
                 self.storiesCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "STR" }
                 self.reelsCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "REL" }
-                print(self.reelsCampaigns)
+                self.bottomSheetsCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "BTS" }
+                self.modalsCampaigns = decodedResponse.campaigns.filter { $0.campaignType == "MOD" }
+                print(self.modalsCampaigns)
             }
         }
         catch {
@@ -171,6 +176,8 @@ public class AppStorys: ObservableObject {
             }
         case .dictionary(let deepLinkData):
             handleDeepLink(data: deepLinkData, campaignId: campaignId, widgetImageId: widgetImageId)
+        case .none:
+            return
         }
     }
     
@@ -194,7 +201,7 @@ public class AppStorys: ObservableObject {
         }
     }
     
-    func trackAction(type: ActionType, campaignID: String, widgetID: String? = nil, storySlide: String? = nil) async {
+    func trackAction(type: ActionType, campaignID: String, widgetID: String? = nil, storySlide: String? = nil, reelId: String? = nil) async {
         guard let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys") , !accessToken.isEmpty else {
             return
         }
@@ -226,6 +233,9 @@ public class AppStorys: ObservableObject {
         if let storySlide = storySlide {
             body["story_slide"] = storySlide
         }
+        if let reelId = reelId {
+            body["reel_id"] = reelId
+        }
         
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: body, options: [])
@@ -236,8 +246,6 @@ public class AppStorys: ObservableObject {
             if let httpResponse = response as? HTTPURLResponse {
                 if httpResponse.statusCode == 200 {
                 } else {
-                    if let responseString = String(data: data, encoding: .utf8) {
-                    }
                 }
             }
         } catch {
@@ -290,13 +298,13 @@ public class AppStorys: ObservableObject {
             request.addValue("application/json", forHTTPHeaderField: "Content-Type")
             
             let task = session.dataTask(with: request) { data, response, error in
-                if let error = error {
+                if error != nil {
                     return
                 }
-                if let httpResponse = response as? HTTPURLResponse {
+                if response is HTTPURLResponse {
                 }
                 
-                if let data = data, let jsonString = String(data: data, encoding: .utf8) {
+                if let data = data, let _ = String(data: data, encoding: .utf8) {
                 }
             }
             task.resume()
@@ -328,8 +336,8 @@ public class AppStorys: ObservableObject {
         let screen_name: String
         let position_list: [String]
     }
-    
 }
+
 
 enum APIError: Error {
     case noAccessToken
@@ -419,7 +427,20 @@ struct CampaignModel: Codable , Equatable {
             } catch {
                 self.details = .unknown
             }
-            
+        case "BTS":
+            if let bottomSheetDetails = try? container.decode(BottomSheetDetails.self, forKey: .details) {
+                self.details = .bottomSheets(bottomSheetDetails)
+            } else {
+                self.details = .unknown
+            }
+        case "MOD":
+            do {
+                let csatDetails = try container.decode(ModalsDetails.self, forKey: .details)
+                self.details = .modals(csatDetails)
+                      } catch {
+                          print("Failed to decode CsatDetails: \(error)")
+                          self.details = .unknown
+                      }
         case "TTP":
             self.details = .toolTip(try container.decode(TooltipDetails.self, forKey: .details))
         default:
@@ -452,6 +473,10 @@ struct CampaignModel: Codable , Equatable {
             try container.encode(storiesDetails, forKey: .details)
         case .reel(let reelDetails):
             try container.encode(reelDetails, forKey: .details)
+        case .bottomSheets(let bottomSheetDetails):
+            try container.encode(bottomSheetDetails, forKey: .details)
+        case .modals(let modalsDetails):
+            try container.encode(modalsDetails, forKey: .details)
         case .unknown:
             break
         }
@@ -468,6 +493,8 @@ enum CampaignDetailsTwo {
     case survey(SurveyDetails)
     case stories([StoryDetails])
     case reel(ReelsDetails)
+    case bottomSheets(BottomSheetDetails)
+    case modals(ModalsDetails)
     case unknown
     
     var widgetType: String? {

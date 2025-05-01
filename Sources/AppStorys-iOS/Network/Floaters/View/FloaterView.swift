@@ -16,7 +16,6 @@ public struct OverlayFloater: View {
     public init(apiService: AppStorys) {
         self.apiService = apiService
     }
-    
     public var body: some View {
         VStack {
             if let floaterCampaign = apiService.floaterCampaigns.first,
@@ -27,9 +26,7 @@ public struct OverlayFloater: View {
                 let height = details.height ?? 60
                 let width = details.width ?? 60
                 let position = details.position ?? "right"
-                
                 Spacer()
-                
                 HStack {
                     if position != "left" {
                         Spacer()
@@ -45,7 +42,15 @@ public struct OverlayFloater: View {
                             .resizable()
                             .scaledToFill()
                             .frame(width: width, height: height)
-                            .clipShape(Circle())
+                            .mask(
+                                RoundedCorners(
+                                    topLeft: details.styling?.topLeftCGFloat ?? 0,
+                                            topRight: details.styling?.topRightCGFloat ?? 0,
+                                            bottomLeft: details.styling?.bottomLeftCGFloat ?? 0,
+                                            bottomRight: details.styling?.bottomRightCGFloat ?? 0
+                                )
+                            )
+
                     }
                     
                     if position == "left" {
@@ -60,7 +65,6 @@ public struct OverlayFloater: View {
             }
         }
         .padding()
-        
     }
 }
 

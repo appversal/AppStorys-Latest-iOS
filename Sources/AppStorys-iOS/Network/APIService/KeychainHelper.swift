@@ -8,7 +8,7 @@
 import Security
 import Foundation
 
-class KeychainHelper {
+public class KeychainHelper {
     @MainActor static let shared = KeychainHelper()
 
     func save(_ value: String, key: String) {
@@ -23,7 +23,7 @@ class KeychainHelper {
             SecItemAdd(query as CFDictionary, nil)
         }
     }
-
+    
     func get(key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

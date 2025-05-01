@@ -8,6 +8,7 @@
 import SwiftUI
 import AVKit
 import Combine
+import SDWebImageSwiftUI
 
 struct ReelsRow: View {
     let reels: [Reel]
@@ -17,25 +18,38 @@ struct ReelsRow: View {
     let cornerRadius: CGFloat
     
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
-                    AsyncImage(url: URL(string: reel.thumbnail)) { image in
-                        image
+        GeometryReader { geometry in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    Spacer()
+                        .frame(width: 0)
+                        .fixedSize()
+                    
+                    ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
+                        WebImage(url: URL(string: reel.thumbnail))
                             .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Color.gray
+                            .indicator(.activity)
+                            .transition(.fade(duration: 0.5))
+                            .scaledToFill()
+                            .frame(width: width, height: height)
+                            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                            .onTapGesture {
+                                onReelClick(index)
+                            }
+                            .contentShape(Rectangle())
                     }
-                    .frame(width: width, height: height)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-                    .onTapGesture {
-                        onReelClick(index)
-                    }
+                    Spacer()
+                        .frame(width: 0)
+                        .fixedSize()
                 }
+                .padding(.horizontal, 16)
+                .padding(.leading, geometry.safeAreaInsets.leading)
+                .padding(.trailing, geometry.safeAreaInsets.trailing)
             }
-            .padding(16)
+            .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
+            .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
         }
+        .frame(height: height + 32) 
     }
 }
 
@@ -46,7 +60,8 @@ struct VideoPlayerViewReel: UIViewControllerRepresentable {
     
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
-        let player = AVPlayer(url: url)
+        let videoURL = VideoCacheManager.shared.cachedURLForVideo(originalURL: url)
+        let player = AVPlayer(url: videoURL)
         controller.player = player
         controller.showsPlaybackControls = false
         
@@ -60,6 +75,10 @@ struct VideoPlayerViewReel: UIViewControllerRepresentable {
                 player.play()
             }
         }
+        if !VideoCacheManager.shared.isVideoCached(url: url) {
+            VideoCacheManager.shared.cacheVideo(url: url)
+        }
+        
         return controller
     }
     
@@ -85,16 +104,18 @@ struct VideoControlsOverlay: View {
     let likesCount: Int
     let onLikeTapped: () -> Void
     let onShareTapped: () -> Void
-    
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
+    @State private var shareData: ShareData?
+
     var body: some View {
         HStack {
             Spacer()
             
             VStack(spacing: 8) {
-                // Like button
                 Button(action: onLikeTapped) {
                     VStack {
-                        Image(systemName: "heart.fill")
+                        Image(systemName: "hand.thumbsup.fill")
                             .resizable()
                             .frame(width: 32, height: 32)
                             .foregroundColor(isLiked ? Color(hex: reelsDetails.styling.likeButtonColor) : .white)
@@ -104,27 +125,51 @@ struct VideoControlsOverlay: View {
                             .foregroundColor(.white)
                     }
                 }
-                
-                // Share button (if link exists)
+
                 if !reel.link.isEmpty {
-                    Button(action: onShareTapped) {
-                        VStack {
+                    Button(action: {
+                        let slide = reel
+                            if !slide.video.isEmpty, let url = URL(string: slide.video) {
+                                shareData = ShareData(items: [url])
+                            }
+                        
+                    }) {
+                        VStack(spacing: 4) {
                             Image(systemName: "square.and.arrow.up")
                                 .resizable()
-                                .frame(width: 32, height: 32)
+                                .frame(width: 24, height: 24)
                                 .foregroundColor(.white)
-                            
+
                             Text("Share")
                                 .font(.caption)
                                 .foregroundColor(.white)
                         }
+                        .padding(8)
+                        .accessibilityLabel("Share Reel")
                     }
                 }
+
             }
             .padding(.trailing, 16)
         }
+        .sheet(item: $shareData) { data in
+            ActivityView(activityItems: data.items)
+        }
+
+    }
+    
+    func presentShareSheet(with items: [Any]) {
+        shareItems = items
+        DispatchQueue.main.async {
+            showShareSheet = true
+        }
     }
 }
+struct ShareData: Identifiable {
+    let id = UUID()
+    let items: [Any]
+}
+
 
 struct ReelInfoOverlay: View {
     let reel: Reel
@@ -139,6 +184,8 @@ struct ReelInfoOverlay: View {
                     .font(.body)
                     .lineLimit(2)
                     .padding(.top, 20)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             
             if !reel.buttonText.isEmpty && !reel.link.isEmpty {
@@ -161,7 +208,6 @@ struct ReelInfoOverlay: View {
     }
 }
 
-// MARK: - Reel Content View
 struct ReelContentView: View {
     let index: Int
     let currentPage: Int
@@ -181,12 +227,8 @@ struct ReelContentView: View {
                 VideoPlayerViewReel(url: url, isPlaying: currentPage == index)
                     .edgesIgnoringSafeArea(.all)
             }
-            
-            // Content overlays
             VStack {
                 Spacer()
-                
-                // Like and share buttons
                 VideoControlsOverlay(
                     reel: reel,
                     reelsDetails: reelsDetails,
@@ -195,8 +237,6 @@ struct ReelContentView: View {
                     onLikeTapped: onLikeTapped,
                     onShareTapped: onShareTapped
                 )
-                
-                // Description and CTA button
                 ReelInfoOverlay(
                     reel: reel,
                     reelsDetails: reelsDetails,
@@ -207,7 +247,6 @@ struct ReelContentView: View {
     }
 }
 
-// MARK: - Full Screen Video Screen
 struct FullScreenVideoScreen: View {
     @Environment(\.presentationMode) var presentationMode
     let reelsDetails: ReelsDetails
@@ -220,7 +259,6 @@ struct FullScreenVideoScreen: View {
     let sendEvents: (Reel, String) -> Void
     
     @State private var likesState: [String: Int] = [:]
-    // Add drag state to better control swipe gestures
     @State private var dragOffset: CGFloat = 0
     @State private var isAnimating: Bool = false
     
@@ -233,8 +271,6 @@ struct FullScreenVideoScreen: View {
         self.onBack = onBack
         self.sendLikesStatus = sendLikesStatus
         self.sendEvents = sendEvents
-        
-        // Initialize likes state
         var initialLikesState: [String: Int] = [:]
         for reel in reels {
             initialLikesState[reel.id] = reel.likes
@@ -242,9 +278,39 @@ struct FullScreenVideoScreen: View {
         self._likesState = State(initialValue: initialLikesState)
     }
     
-    // Helper functions
+    func sendReelLikeAction(reelId: String, action: String) async throws {
+        guard let userID = KeychainHelper.shared.get(key: "userIDAppStorys"),
+              let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys") else {
+            return
+        }
+        let apiBaseURL = "https://backend.appstorys.com"
+        let endpoint = "\(apiBaseURL)/api/v1/campaigns/reel-like/"
+        
+        guard let url = URL(string: endpoint) else {
+            throw NSError(domain: "Invalid URL", code: 400, userInfo: ["url": endpoint])
+        }
+        let payload: [String: Any] = [
+            "reel": reelId,
+            "action": action,
+            "user_id": userID
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
+            throw NSError(domain: "JSON serialization error", code: 400, userInfo: nil)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = jsonData
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+          return
+        }
+    }
+    
     func handleLikeAction(for reel: Reel) {
         let isLiked = likedReels.contains(reel.id)
+        let action = isLiked ? "unlike" : "like"
         if !isLiked {
             likedReels.append(reel.id)
             likesState[reel.id] = (likesState[reel.id] ?? 0) + 1
@@ -252,15 +318,23 @@ struct FullScreenVideoScreen: View {
             likedReels.removeAll { $0 == reel.id }
             likesState[reel.id] = (likesState[reel.id] ?? 1) - 1
         }
-        sendLikesStatus(reel, isLiked ? "unlike" : "like")
+        KeychainHelper.shared.saveLikedReels(likedReels)
+        Task {
+            do {
+                try await sendReelLikeAction(reelId: reel.id, action: action)
+            } catch {
+                return
+            }
+        }
+        sendLikesStatus(reel, action)
     }
+
     
     func handleShareAction(for reel: Reel) {
         let activityVC = UIActivityViewController(
             activityItems: [reel.link],
             applicationActivities: nil
         )
-        
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootVC = windowScene.windows.first?.rootViewController {
             rootVC.present(activityVC, animated: true)
@@ -274,20 +348,14 @@ struct FullScreenVideoScreen: View {
         }
     }
     
-    // Function to safely change page with proper animation
     func changePage(to newPage: Int) {
         guard newPage >= 0 && newPage < reels.count && !isAnimating else { return }
-        
         isAnimating = true
         withAnimation(.spring()) {
             currentPage = newPage
             dragOffset = 0
         }
-        
-        // Send impression event for new page
         sendEvents(reels[newPage], "IMP")
-        
-        // Reset animation flag after animation completes
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             isAnimating = false
         }
@@ -296,12 +364,11 @@ struct FullScreenVideoScreen: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                Color.black.edgesIgnoringSafeArea(.all)
+                Color.black.ignoresSafeArea()
                 
-                // Replace ScrollView with a more direct approach using ZStack and offset
                 ZStack {
                     ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
-                        if abs(index - currentPage) <= 1 { // Only render adjacent reels for performance
+                        if abs(index - currentPage) <= 1 {
                             ReelContentView(
                                 index: index,
                                 currentPage: currentPage,
@@ -328,23 +395,18 @@ struct FullScreenVideoScreen: View {
                         }
                         .onEnded { value in
                             let threshold: CGFloat = 100
-                            
                             if dragOffset < -threshold && currentPage < reels.count - 1 {
-                                // Swipe up to next reel
                                 changePage(to: currentPage + 1)
                             } else if dragOffset > threshold && currentPage > 0 {
-                                // Swipe down to previous reel
                                 changePage(to: currentPage - 1)
                             } else {
-                                // Reset if threshold not met
                                 withAnimation(.spring()) {
                                     dragOffset = 0
                                 }
                             }
                         }
                 )
-
-                // Back button overlay
+                
                 VStack {
                     HStack {
                         Button(action: {
@@ -353,30 +415,43 @@ struct FullScreenVideoScreen: View {
                         }) {
                             Image(systemName: "arrow.left")
                                 .resizable()
-                                .frame(width: 24, height: 24)
+                                .frame(width: 20, height: 20)
                                 .foregroundColor(.white)
                                 .padding(12)
-                                .background(Color.black.opacity(0.5))
                                 .clipShape(Circle())
                         }
                         .padding(.leading, 16)
-                        
                         Spacer()
                     }
-                    .padding(.top, 16)
-                    
+                    .padding(.top, 8)
                     Spacer()
                 }
-                .padding(.top, UIApplication.shared.windows.first?.safeAreaInsets.top ?? 0)
-                
+                .padding(.top, 0)
             }
         }
-        .edgesIgnoringSafeArea(.all)
-        .statusBar(hidden: true)
-        .onAppear {
-            // Send impression event for initial reel
-            sendEvents(reels[currentPage], "IMP")
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .preferredColorScheme(.dark)
+        .onChange(of: currentPage) { _ in
+            prefetchAdjacentReels()
         }
+        .onAppear {
+            sendEvents(reels[currentPage], "IMP")
+            prefetchAdjacentReels()
+        }
+    }
+}
+
+extension FullScreenVideoScreen {
+    func prefetchAdjacentReels() {
+        let urlsToCache = reels.enumerated().compactMap { index, reel -> URL? in
+            if (index == currentPage + 1 || index == currentPage + 2 || index == currentPage - 1),
+               let url = URL(string: reel.video) {
+                return url
+            }
+            return nil
+        }
+        
+        VideoCacheManager.shared.prefetchVideos(urls: urlsToCache)
     }
 }
 
@@ -411,12 +486,6 @@ public struct ReelView: View {
     
     public var body: some View {
         VStack {
-            Text("Reels")
-                .font(.largeTitle)
-                .bold()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-            
             if let details = currentReelsDetails {
                 ReelsRow(
                     reels: details.reels,
@@ -429,9 +498,11 @@ public struct ReelView: View {
                     width: CGFloat(Int(details.styling.thumbnailWidth) ?? 120),
                     cornerRadius: CGFloat(Int(details.styling.cornerRadius) ?? 12)
                 )
+                .padding(.vertical, 8)
+                
                 Spacer()
             } else {
-                ProgressView("Loading Reels...")
+                ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -441,14 +512,9 @@ public struct ReelView: View {
                 currentReelsDetails = details
             }
         }
-        .onAppear {
-            if let reelsCampaign = apiService.reelsCampaigns.first,
-               case let .reel(details) = reelsCampaign.details {
-                currentReelsDetails = details
-            }
-        }
         .fullScreenCover(isPresented: $showFullScreen) {
-            if let details = currentReelsDetails {
+            if let details = currentReelsDetails,
+               let campaignID = apiService.reelsCampaigns.first?.id {
                 FullScreenVideoScreen(
                     reelsDetails: details,
                     reels: details.reels,
@@ -467,8 +533,23 @@ public struct ReelView: View {
                         KeychainHelper.shared.saveLikedReels(likedReels)
                     },
                     sendEvents: { reel, eventType in
+                        Task {
+                            do {
+                                let type: ActionType = eventType == "IMP" ? .view : .click
+                                try await apiService.trackAction(
+                                    type: type,
+                                    campaignID: campaignID,
+                                    widgetID: nil,
+                                    reelId: reel.id
+                                )
+                            } catch {
+                                return
+                            }
+                        }
                     }
                 )
+            } else {
+                ProgressView()
             }
         }
     }

@@ -9,7 +9,6 @@ import SwiftUI
 import AVKit
 
 public struct FullScreenPipView : View {
-    
     @State private var isMuted = false
     @State private var position = CGSize.zero
     @StateObject private var playerManager = AVPlayerManager()
@@ -17,7 +16,7 @@ public struct FullScreenPipView : View {
     @ObservedObject private var apiService: AppStorys
     @Binding var isPipVisible: Bool
     
-    public init(isVisible: Binding<Bool>, isPipVisible: Binding<Bool>,apiService: AppStorys) {
+    public init(isVisible: Binding<Bool>, isPipVisible: Binding<Bool>, apiService: AppStorys) {
         self._isVisible = isVisible
         self._isPipVisible = isPipVisible
         self.apiService = apiService
@@ -25,26 +24,24 @@ public struct FullScreenPipView : View {
     
     public var body: some View {
         if isVisible {
-            if let pipCampaign = apiService.pipCampaigns.first{
+            if let pipCampaign = apiService.pipCampaigns.first {
                 if case let .pip(details) = pipCampaign.details,
                    let videoURL = details.smallVideo {
                     let videoWidth = CGFloat(details.width ?? 230)
                     let videoHeight = CGFloat(details.height ?? 405)
                     
-                    ZStack {
+                    ZStack(alignment: .top) {
+                        Color.black.ignoresSafeArea()
                         CustomAVPlayerView(player: playerManager.player)
-                            .frame(width:  UIScreen.main.bounds.width ,
-                                   height: UIScreen.main.bounds.height )
-                            .cornerRadius(15)
-                            .shadow(radius: 5)
-                            .offset(x:  0 , y:  0 )
+                            .padding(.top,60)
+                            .padding(.bottom,60)
+
+                            .edgesIgnoringSafeArea(.all)
                             .onAppear {
                                 playerManager.updateVideoURL(videoURL)
                                 playerManager.play()
                             }
-                            .edgesIgnoringSafeArea(.all)
-                        
-                        VStack (alignment:.leading){
+                        VStack {
                             HStack {
                                 Button(action: {
                                     isMuted.toggle()
@@ -53,31 +50,29 @@ public struct FullScreenPipView : View {
                                     Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                                         .resizable()
                                         .scaledToFit()
-                                        .frame(width: 20, height: 20 )
-                                        .padding(5 )
+                                        .frame(width: 20, height: 20)
+                                        .padding(5)
                                 }
-                                .frame(width:35 , height: 35 )
+                                .frame(width: 35, height: 35)
                                 .background(Color.gray)
                                 .foregroundColor(.white)
                                 .clipShape(Circle())
-                                .padding(.leading, 20)
-                                .padding(.top, 0 )
                                 
-                                Button(action: {   isVisible = false
-                                    playerManager.player.pause()}) {
-                                        Image(systemName: "rectangle.expand.vertical")
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(width: 20, height: 20)
-                                            .padding(5)
-                                            .clipShape(Circle())
-                                    }
-                                    .frame(width: 35, height: 35)
-                                    .background(Color.gray)
-                                    .foregroundColor(.white)
-                                    .clipShape(Circle())
+                                Button(action: {
+                                    isVisible = false
+                                    playerManager.player.pause()
+                                }) {
+                                    Image(systemName: "arrow.down.forward.and.arrow.up.backward.rectangle")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 20, height: 20)
+                                        .padding(5)
+                                }
+                                .frame(width: 35, height: 35)
+                                .background(Color.gray)
+                                .foregroundColor(.white)
+                                .clipShape(Circle())
                                 
-                                    .padding(.top, 0 )
                                 Spacer()
                                 
                                 Button(action: {
@@ -85,35 +80,24 @@ public struct FullScreenPipView : View {
                                     isPipVisible = false
                                     playerManager.player.pause()
                                 }) {
-                                    Image(systemName: "xmark")
+                                    Image(systemName: "xmark.circle")
                                         .resizable()
                                         .scaledToFit()
-                                        .frame(width: 20, height: 20 )
-                                        .padding(5 )
+                                        .frame(width: 20, height: 20)
+                                        .padding(5)
                                 }
-                                
-                                .frame(width:35 , height: 35 )
+                                .frame(width: 35, height: 35)
                                 .background(Color.gray)
                                 .foregroundColor(.white)
                                 .clipShape(Circle())
-                                .padding(.trailing, 20 )
-                                .padding(.top,  0 )
                             }
-                            .frame(alignment: .top)
-                            
-                        }
-                        .padding(.bottom, UIScreen.main.bounds.height - 50)
-                        .frame(width: UIScreen.main.bounds.width , height: UIScreen.main.bounds.height )
-                        .offset(x:  0, y: 0)
-                        
-                        VStack {
+                            .padding(.horizontal, 10)
+                            .padding(.top, 50)
                             Spacer()
-                            
                             if let linkString = details.link, let link = URL(string: linkString) {
                                 Button(action: {
                                     trackAction(campaignID: pipCampaign.id, actionType: .click)
                                     UIApplication.shared.open(link)
-                                    
                                 }) {
                                     Text("Click")
                                         .font(.headline)
@@ -124,25 +108,17 @@ public struct FullScreenPipView : View {
                                         .cornerRadius(10)
                                 }
                                 .padding(.horizontal, 20)
-                                .padding(.bottom, 50)
+                                .padding(.bottom, 70)
                             }
                         }
-                        .frame(width: UIScreen.main.bounds.width ,
-                               height: UIScreen.main.bounds.height)
-                        
+                        .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
                     }
-                    .onAppear {
-                    }
-                    .frame(width: UIScreen.main.bounds.width ,
-                           height: UIScreen.main.bounds.height)
+                    .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
                     .transition(.move(edge: .trailing))
                     
                 } else {
                     ProgressView("Loading...")
                         .padding()
-                        .onAppear {
-                            
-                        }
                 }
             }
         }
@@ -153,5 +129,4 @@ public struct FullScreenPipView : View {
             return
         }
     }
-    
 }

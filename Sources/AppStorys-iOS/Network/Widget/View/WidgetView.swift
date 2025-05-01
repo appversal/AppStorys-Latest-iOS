@@ -1,9 +1,26 @@
-
 import SwiftUI
 import SDWebImageSwiftUI
+import Lottie
 
 public protocol WidgetViewDelegate: AnyObject {
     func widgetViewDidUpdateHeight(_ height: CGFloat)
+}
+
+struct ViewVisibilityModifier: ViewModifier {
+    let onAppear: () -> Void
+    let onDisappear: () -> Void
+    
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: onAppear)
+            .onDisappear(perform: onDisappear)
+    }
+}
+
+extension View {
+    func trackVisibility(onAppear: @escaping () -> Void, onDisappear: @escaping () -> Void) -> some View {
+        modifier(ViewVisibilityModifier(onAppear: onAppear, onDisappear: onDisappear))
+    }
 }
 
 public struct WidgetView: View {
@@ -14,8 +31,9 @@ public struct WidgetView: View {
     @State private var campaignID: String?
     @State private var viewedImageIDs: Set<String> = []
     @State private var timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+    @State private var visiblePercentage: [Int: CGFloat] = [:]
     var onHeightUpdate: ((CGFloat) -> Void)?
-    var position: String
+    var position: String?
     weak var delegate: WidgetViewDelegate?
     @State private var imageHeight: CGFloat? = nil
     
@@ -23,9 +41,10 @@ public struct WidgetView: View {
         static let dotDefaultSize: CGFloat = 10
         static let dotCornerRadius: CGFloat = 5
         static let selectedDotWidth: CGFloat = 25
+        static let visibilityThreshold: CGFloat = 0.5 // 50% visibility threshold
     }
     
-    public init(apiService: AppStorys, position: String, delegate: WidgetViewDelegate?) {
+    public init(apiService: AppStorys, position: String?, delegate: WidgetViewDelegate?) {
         self.apiService = apiService
         self.position = position
         self.delegate = delegate
@@ -62,13 +81,18 @@ public struct WidgetView: View {
     
     private func halfWidgetView() -> some View {
         TabView(selection: $selectedIndex) {
-            ForEach(0..<images.count / 2, id: \..self) { index in
+            ForEach(0..<images.count / 2, id: \.self) { index in
                 HStack(spacing: 14) {
                     widgetImageView(at: index * 2)
                     widgetImageView(at: index * 2 + 1)
                 }
                 .padding(14)
                 .tag(index)
+                .background(GeometryReader { geometry in
+                    Color.clear.onAppear {
+                        checkVisibility(for: [index * 2, index * 2 + 1], geometry: geometry)
+                    }
+                })
             }
         }
         .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
@@ -77,34 +101,58 @@ public struct WidgetView: View {
     
     private func fullWidgetView() -> some View {
         TabView(selection: $selectedIndex) {
-            ForEach(Array(images.enumerated()), id: \..offset) { index, image in
-                WebImage(url: URL(string: image.imageURL))
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: widgetHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .tag(index)
-                    .onTapGesture {
-                        didTapWidgetImage(at: index)
+            ForEach(Array(images.enumerated()), id: \.offset) { index, image in
+                Group {
+                    if let lottieName = image.lottieData {
+                        LottieView(animationURL: lottieName)
+                            .frame(height: widgetHeight)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        WebImage(url: URL(string: image.imageURL))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity)
+                            .frame(height: widgetHeight)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .onAppear {
-                        didViewWidgetImage(at: index)
+                }
+                .tag(index)
+                .onTapGesture {
+                    didTapWidgetImage(at: index)
+                }
+                .background(GeometryReader { geometry in
+                    Color.clear.onAppear {
+                        checkVisibility(for: [index], geometry: geometry)
                     }
+                })
             }
-            
         }
         .onChange(of: selectedIndex) { newIndex in
-            didViewWidgetImage(at: newIndex)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .frame(height: widgetHeight + 10)
     }
     
+    private func checkVisibility(for indices: [Int], geometry: GeometryProxy) {
+        DispatchQueue.main.async {
+            let frame = geometry.frame(in: .global)
+            let screenBounds = UIScreen.main.bounds
+            let visibleHeight = min(frame.maxY, screenBounds.maxY) - max(frame.minY, screenBounds.minY)
+            let visibility = max(0, visibleHeight / frame.height)
+            for index in indices {
+                guard index < images.count else { continue }
+                visiblePercentage[index] = visibility
+                if visibility >= Constants.visibilityThreshold {
+                    didViewWidgetImage(at: index)
+                }
+            }
+        }
+    }
+    
     private func dotIndicators() -> some View {
         HStack(spacing: 4) {
             let numberOfDots = isHalfWidget() ? (images.count + 1) / 2 : images.count
-            ForEach(0..<numberOfDots, id: \..self) { index in
+            ForEach(0..<numberOfDots, id: \.self) { index in
                 RoundedRectangle(cornerRadius: Constants.dotCornerRadius)
                     .frame(width: index == selectedIndex ? 8 : 5, height: 5)
                     .foregroundColor(index == selectedIndex ? .black : .gray.opacity(0.5))
@@ -116,23 +164,53 @@ public struct WidgetView: View {
     }
     
     private func widgetImageView(at index: Int) -> some View {
-        WebImage(url: URL(string: images[index].imageURL))
-            .resizable()
-            .scaledToFit()
-            .frame(maxWidth: .infinity)
-            .frame(height: widgetHeight)
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .onTapGesture {
-                didTapWidgetImage(at: index)
+        Group {
+            if let lottieName = images[index].lottieData {
+                LottieView(animationURL: lottieName)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: widgetHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                WebImage(url: URL(string: images[index].imageURL))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: widgetHeight)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .onAppear {
-                if index / 2 == selectedIndex {
-                    didViewWidgetImage(at: index)
+        }
+        .onTapGesture {
+            didTapWidgetImage(at: index)
+        }
+        .background(GeometryReader { geometry in
+            Color.clear
+                .onAppear {
+                    checkVisibility(for: [index], geometry: geometry)
                 }
-            }
+        })
     }
-    
+
+    private func setupVisibilityObserver(for index: Int) -> some View {
+        let screenBounds = UIScreen.main.bounds
+
+        return GeometryReader { geometry in
+            Color.clear
+                .preference(key: ViewVisibilityPreferenceKey.self, value: geometry.frame(in: .global))
+                .onPreferenceChange(ViewVisibilityPreferenceKey.self) { bounds in
+                    let visibleHeight = min(bounds.maxY, screenBounds.maxY) - max(bounds.minY, screenBounds.minY)
+                    let visibility = max(0, visibleHeight / bounds.height)
+
+                    DispatchQueue.main.async {
+                        visiblePercentage[index] = visibility
+                        if visibility >= Constants.visibilityThreshold {
+                            didViewWidgetImage(at: index)
+                        }
+                    }
+                }
+        }
+    }
+
     private func loadWidgetCampaign() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             updateWidgetCampaign()
@@ -141,55 +219,62 @@ public struct WidgetView: View {
     }
     
     private func updateWidgetCampaign() {
-        if let widgetCampaign = apiService.widgetCampaigns.first(where: { $0.position == position }) {
+        let widgetCampaign: CampaignModel? = {
+                if let position = position {
+                    return apiService.widgetCampaigns.first(where: { $0.position == position })
+                } else {
+                    return apiService.widgetCampaigns.first
+                }
+            }()
+
+            guard let widgetCampaign = widgetCampaign else { return }
             if case let .widget(details) = widgetCampaign.details {
-                self.images = details.widgetImages!.sorted { $0.order < $1.order }
+                self.images = details.widgetImages?.sorted { $0.order < $1.order } ?? []
                 if let firstImageURL = images.first?.imageURL, let url = URL(string: firstImageURL) {
                     SDWebImageManager.shared.loadImage(
                         with: url,
                         options: .highPriority,
                         progress: nil
                     ) { image, _, _, _, _, _ in
-                        if let image = image {
+                        if let _ = image {
                             DispatchQueue.main.async {
                                 if let width = details.width, let height = details.height {
-                                    let aspectRatio = height / width
-                                    let actualWidth = UIScreen.main.bounds.width
-                                    let calculatedHeight =  actualWidth * CGFloat(aspectRatio)
-                                    widgetHeight = calculatedHeight
-                                } else {
-                                    widgetHeight = CGFloat(details.height!)
+                                    widgetHeight = details.height ?? 100
+                                } else if let height = details.height {
+                                    widgetHeight = CGFloat(height)
                                 }
                                 delegate?.widgetViewDidUpdateHeight(self.widgetHeight + 30)
                             }
-                        } else {
                         }
                     }
                 }
-                
-                if self.images.count == 1 {
-                    didViewWidgetImage(at: 0)
-                }
-            } else {
             }
-        } else {
         }
-    }
     
     
     private func didViewWidgetImage(at index: Int) {
         guard index < images.count else { return }
         let imageID = images[index].id
         guard !viewedImageIDs.contains(imageID) else { return }
+        guard visiblePercentage[index] ?? 0 >= Constants.visibilityThreshold else { return }
         viewedImageIDs.insert(imageID)
         
-        if let widgetCampaign = apiService.widgetCampaigns.first(where: { $0.position == position }),
-           case let .widget(details) = widgetCampaign.details {
+        let widgetCampaign: CampaignModel? = {
+            if let position = position {
+                return apiService.widgetCampaigns.first(where: { $0.position == position })
+            } else {
+                return apiService.widgetCampaigns.first
+            }
+        }()
+        
+        if let widgetCampaign = widgetCampaign,
+           case .widget(_) = widgetCampaign.details {
             Task {
-                try await apiService.trackAction(type: .view, campaignID: widgetCampaign.id, widgetID: imageID)
+                try? await apiService.trackAction(type: .view, campaignID: widgetCampaign.id, widgetID: imageID)
             }
         }
     }
+
     
     private func didTapWidgetImage(at index: Int) {
         guard index < images.count else { return }
@@ -226,5 +311,13 @@ public struct WidgetView: View {
     
     private func isHalfWidget() -> Bool {
         return apiService.widgetCampaigns.first(where: { $0.position == position })?.details.widgetType == "half"
+    }
+}
+
+struct ViewVisibilityPreferenceKey: @preconcurrency PreferenceKey {
+    @MainActor static var defaultValue: CGRect = .zero
+    
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
     }
 }

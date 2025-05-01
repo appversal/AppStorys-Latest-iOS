@@ -12,13 +12,14 @@ struct BannerDetails: Codable {
     let height: Double?
     let link: LinkType
     let styling: BannerStyling?
-    let lottieData: String?
+    let lottie_data: String?
 }
 
 enum LinkType: Codable {
     case string(String)
     case dictionary(DeepLinkData)
-    
+    case none
+
     struct DeepLinkData: Codable {
         let value: String
         let type: String?
@@ -27,14 +28,14 @@ enum LinkType: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-
-        if let stringValue = try? container.decode(String.self) {
+        
+        if container.decodeNil() {
+            self = .none
+        } else if let stringValue = try? container.decode(String.self) {
             self = .string(stringValue)
-        }
-        else if let dictionaryValue = try? container.decode(DeepLinkData.self) {
+        } else if let dictionaryValue = try? container.decode(DeepLinkData.self) {
             self = .dictionary(dictionaryValue)
-        }
-        else {
+        } else {
             throw DecodingError.typeMismatch(LinkType.self, DecodingError.Context(
                 codingPath: decoder.codingPath,
                 debugDescription: "Unexpected format for `link` field"
@@ -49,9 +50,12 @@ enum LinkType: Codable {
             try container.encode(value)
         case .dictionary(let value):
             try container.encode(value)
+        case .none:
+            try container.encodeNil()
         }
     }
 }
+
 
 
 struct BannerStyling: Codable {

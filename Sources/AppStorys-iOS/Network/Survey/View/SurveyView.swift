@@ -3,7 +3,7 @@
 //  AppStorys-iOS
 //
 //  Created by Darshika Gupta on 31/03/25.
-//
+
 import SwiftUI
 
 public struct Survey: View {
@@ -49,7 +49,7 @@ public struct Survey: View {
     public var body: some View {
         GeometryReader { geometry in
             if showSurvey {
-                ZStack {
+                ZStack (){
                     Color.black.opacity(0.4)
                         .edgesIgnoringSafeArea(.all)
                     if let surveyCampaign = apiService.surveyCampaigns.first {
@@ -61,7 +61,9 @@ public struct Survey: View {
                             let surveyOptions = details.surveyOptions
                             let hasOthers = details.hasOthers
                             let campaign = details.campaign
-                            ScrollView {
+                            VStack {
+                                Spacer()
+                                
                                 VStack(alignment: .leading, spacing: 12) {
                                     ZStack {
                                         Text(details.name!)
@@ -174,13 +176,16 @@ public struct Survey: View {
                                 .background(hexToColor(details.styling["backgroundColor"] ?? "#FFFFFF"))
                                 .cornerRadius(18)
                                 .frame(width: geometry.size.width * 0.9)
+                                .frame(maxHeight: geometry.size.height * 0.9)
+                                
+                                Spacer()
                             }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .onAppear {
-                                Task {
-                                    await apiService.trackAction(type: .view, campaignID: surveyCampaign.id, widgetID: "")
+                            .frame(width: geometry.size.width)
+                                .onAppear {
+                                    Task {
+                                        await apiService.trackAction(type: .view, campaignID: surveyCampaign.id, widgetID: "")
+                                    }
                                 }
-                            }
                         }
                     }
                 }
@@ -188,6 +193,7 @@ public struct Survey: View {
                 EmptyView()
             }
         }
+        
     }
     func toggleOption(option: String) {
         if selectedOptions.contains(option) {
@@ -247,7 +253,7 @@ public struct Survey: View {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
         URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
+            if error != nil {
                 return
             }
             guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
@@ -256,4 +262,3 @@ public struct Survey: View {
         }.resume()
     }
 }
-

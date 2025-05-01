@@ -29,7 +29,6 @@ struct StoryCircles: View {
         }
     }
     
-    
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -46,8 +45,12 @@ struct StoryCircles: View {
                     }
                 }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
         }
-        .padding(8)
+        .padding(.vertical, 4)
+        .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
+        .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
     }
 }
 
@@ -64,13 +67,12 @@ struct StoryItem: View {
     var body: some View {
         VStack(alignment: .center) {
             ZStack(alignment: .center) {
-                
                 Circle()
                     .strokeBorder(
                         isStoryGroupViewed ? Color.gray : ringColor,
                         lineWidth: 2.5
                     )
-                    .frame(width: 70, height: 70)
+                    .frame(width: 74, height: 74)
                 
                 WebImage(url: URL(string: imageUrl))
                     .resizable()
@@ -86,7 +88,7 @@ struct StoryItem: View {
                 .foregroundColor(nameColor)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .frame(width: 60)
+                .frame(width: 60, height: 32, alignment: .top)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(4)
@@ -102,7 +104,6 @@ struct StoryScreen: View {
     let sendEvent: (StorySlide, String) -> Void
     @State private var imageTimer: AnyCancellable?
     
-    
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
     @State private var currentSlideIndex = 0
@@ -111,7 +112,8 @@ struct StoryScreen: View {
     @State private var progress: CGFloat = 0
     @State private var completedSlides = Set<Int>()
     @State private var player: AVPlayer?
-    
+    @State private var shareData: ShareData?
+
     private var currentSlide: StorySlide {
         slides[currentSlideIndex]
     }
@@ -123,187 +125,191 @@ struct StoryScreen: View {
     private let storyImageDuration: TimeInterval = 5.0
     
     var body: some View {
-        ZStack {
-            Color.black.edgesIgnoringSafeArea(.all)
-            if #available(iOS 17.0, *) {
-                ZStack {
-                    if let videoUrl = currentSlide.video, !videoUrl.isEmpty {
-                        VideoPlayerView(player: player)
-                    } else if let imageUrl = currentSlide.image, !imageUrl.isEmpty {
-                        WebImage(url: URL(string: imageUrl))
-                            .resizable()
-                            .indicator(.activity)
-                            .scaledToFit()
-                    }
-                    
-                    if let link = currentSlide.link,
-                       let buttonText = currentSlide.buttonText,
-                       !link.isEmpty,
-                       !buttonText.isEmpty {
-                        VStack {
-                            Spacer()
-                            Button(action: {
-                                guard let url = URL(string: link) else { return }
-                                UIApplication.shared.open(url)
-                                sendEvent(currentSlide, "CLK")
-                            }) {
-                                Text(buttonText)
-                                    .foregroundColor(.black)
-                                    .padding()
-                                    .background(Color.white)
-                                    .cornerRadius(8)
+        GeometryReader { geometry in
+            ZStack {
+                Color.black
+                    .edgesIgnoringSafeArea(.all)
+                
+                if #available(iOS 17.0, *) {
+                    ZStack {
+                        if let videoUrl = currentSlide.video, !videoUrl.isEmpty {
+                            VideoPlayerView(player: player)
+                                .frame(width: geometry.size.width, height: geometry.size.height)
+                        } else if let imageUrl = currentSlide.image, !imageUrl.isEmpty {
+                            WebImage(url: URL(string: imageUrl))
+                                .resizable()
+                                .indicator(.activity)
+                                .scaledToFit()
+                                .frame(width: geometry.size.width, height: geometry.size.height)
+                        }
+                        
+                        if let link = currentSlide.link,
+                           let buttonText = currentSlide.buttonText,
+                           !link.isEmpty,
+                           !buttonText.isEmpty {
+                            VStack {
+                                Spacer()
+                                Button(action: {
+                                    guard let url = URL(string: link) else { return }
+                                    UIApplication.shared.open(url)
+                                    sendEvent(currentSlide, "CLK")
+                                }) {
+                                    Text(buttonText)
+                                        .foregroundColor(.black)
+                                        .padding()
+                                        .background(Color.white)
+                                        .cornerRadius(8)
+                                }
+                                .padding(.bottom, 32)
                             }
-                            .padding(.bottom, 32)
                         }
                     }
-                }
-                
-                .contentShape(Rectangle())
-                
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { _ in
-                            if !isHolding {
-                                isHolding = true
-                                player?.pause()
-                                imageTimer?.cancel()
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in
+                                if !isHolding {
+                                    isHolding = true
+                                    player?.pause()
+                                    imageTimer?.cancel()
+                                }
                             }
-                        }
-                        .onEnded { value in
-                            let location = value.location
-                            isHolding = false
-                            player?.play()
-                            
-                            if isImage {
-                                startImageTimer()
-                            }
-                            
-                            let screenWidth = UIScreen.main.bounds.width
-                            if location.x < screenWidth / 2 {
-                                if currentSlideIndex > 0 {
+                            .onEnded { value in
+                                let location = value.location
+                                isHolding = false
+                                player?.play()
+                                
+                                if isImage {
+                                    startImageTimer()
+                                }
+                                
+                                let screenWidth = geometry.size.width
+                                if location.x < screenWidth / 2 {
+                                    if currentSlideIndex > 0 {
+                                        imageTimer?.cancel()
+                                        player?.pause()
+                                        completedSlides.remove(currentSlideIndex)
+                                        currentSlideIndex -= 1
+                                    }
+                                } else {
                                     imageTimer?.cancel()
                                     player?.pause()
-                                    completedSlides.remove(currentSlideIndex)
-                                    currentSlideIndex -= 1
+                                    handleSlideCompletion()
                                 }
-                            } else {
-                                imageTimer?.cancel()
-                                player?.pause()
-                                handleSlideCompletion()
                             }
-                        }
-                )
-                
-            }
-            
-            VStack {
-                HStack(spacing: 4) {
-                    ForEach(0..<slides.count, id: \.self) { index in
-                        let progressValue: CGFloat = {
-                            if index == currentSlideIndex {
-                                return progress
-                            } else if index < currentSlideIndex || completedSlides.contains(index) {
-                                return 1.0
-                            } else {
-                                return 0.0
-                            }
-                        }()
-                        
-                        ProgressBar(progress: progressValue)
-                            .frame(height: 4)
-                    }
+                    )
                 }
-                .padding(.horizontal, 8)
                 
-                Spacer()
-            }
-            
-            VStack {
-                HStack(alignment: .center) {
-                    HStack {
-                        WebImage(url: URL(string: storyGroup.thumbnail))
-                            .resizable()
-                            .indicator(.activity)
-                            .scaledToFill()
-                            .frame(width: 32, height: 32)
-                            .clipShape(Circle())
-                        
-                        
-                        Text(storyGroup.name)
-                            .foregroundColor(.white)
-                            .font(.system(size: 14))
+                VStack {
+                    HStack(spacing: 4) {
+                        ForEach(0..<slides.count, id: \.self) { index in
+                            let progressValue: CGFloat = {
+                                if index == currentSlideIndex {
+                                    return progress
+                                } else if index < currentSlideIndex || completedSlides.contains(index) {
+                                    return 1.0
+                                } else {
+                                    return 0.0
+                                }
+                            }()
+                            
+                            ProgressBar(progress: progressValue)
+                                .frame(height: 4)
+                        }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
                     
                     Spacer()
-                    HStack(spacing: 4) {
-                        Button(action: {
-                            let slide = currentSlide
-                            var itemsToShare: [Any] = []
-                            
-                            if let link = slide.link, !link.isEmpty {
-                                itemsToShare = [link]
-                            } else if let image = slide.image, let url = URL(string: image) {
-                                itemsToShare = [url]
-                            } else if let video = slide.video, let url = URL(string: video) {
-                                itemsToShare = [url]
-                            }
-                            
-                            if !itemsToShare.isEmpty {
-                                shareItems = itemsToShare
-                                showShareSheet = true
-                            } 
-                        }) {
-                            Image(systemName: "square.and.arrow.up")
-                                .foregroundColor(.white)
+                }
+                
+                VStack {
+                    HStack(alignment: .center) {
+                        HStack {
+                            WebImage(url: URL(string: storyGroup.thumbnail))
+                                .resizable()
+                                .indicator(.activity)
+                                .scaledToFill()
                                 .frame(width: 32, height: 32)
-                                .background(Color.black.opacity(0.2))
                                 .clipShape(Circle())
+                            
+                            Text(storyGroup.name)
+                                .foregroundColor(.white)
+                                .font(.system(size: 14))
                         }
                         
-                        
-                        if !isImage {
+                        Spacer()
+                        HStack(spacing: 4) {
                             Button(action: {
-                                isMuted.toggle()
-                                player?.isMuted = isMuted
+                                let slide = currentSlide
+                                var itemsToShare: [Any] = []
+
+                                if let image = slide.image, let url = URL(string: image) {
+                                    itemsToShare = [url]
+                                } else if let video = slide.video, let url = URL(string: video) {
+                                    itemsToShare = [url]
+                                }
+
+                                if !itemsToShare.isEmpty {
+                                    shareData = ShareData(items: itemsToShare)
+                                }
+
                             }) {
-                                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                Image(systemName: "square.and.arrow.up")
+                                    .foregroundColor(.white)
+                                    .frame(width: 32, height: 32)
+                                    .background(Color.black.opacity(0.2))
+                                    .clipShape(Circle())
+                            }
+                            
+                            if !isImage {
+                                Button(action: {
+                                    isMuted.toggle()
+                                    player?.isMuted = isMuted
+                                }) {
+                                    Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                        .foregroundColor(.white)
+                                        .frame(width: 32, height: 32)
+                                        .background(Color.black.opacity(0.2))
+                                        .clipShape(Circle())
+                                }
+                            }
+                            
+                            Button(action: onDismiss) {
+                                Image(systemName: "xmark")
                                     .foregroundColor(.white)
                                     .frame(width: 32, height: 32)
                                     .background(Color.black.opacity(0.2))
                                     .clipShape(Circle())
                             }
                         }
-                        
-                        Button(action: onDismiss) {
-                            Image(systemName: "xmark")
-                                .foregroundColor(.white)
-                                .frame(width: 32, height: 32)
-                                .background(Color.black.opacity(0.2))
-                                .clipShape(Circle())
-                        }
                     }
+                    .padding(18)
+                    
+                    Spacer()
                 }
-                .padding(18)
-                
-                Spacer()
             }
         }
-        .sheet(isPresented: $showShareSheet) {
-            ActivityView(activityItems: shareItems)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 0)
         }
-        
+        .sheet(item: $shareData) { data in
+            ActivityView(activityItems: data.items)
+        }
         .onAppear {
             progress = 0
             sendEvent(currentSlide, "IMP")
             imageTimer?.cancel()
             setupMedia()
             configureSDWebImage()
+            prefetchNextVideos()
         }
         .onChange(of: currentSlideIndex) { _ in
             progress = 0
             sendEvent(currentSlide, "IMP")
             imageTimer?.cancel()
             setupMedia()
+            prefetchNextVideos()
         }
         .onDisappear {
             imageTimer?.cancel()
@@ -319,6 +325,20 @@ struct StoryScreen: View {
         SDWebImageDownloader.shared.config.downloadTimeout = 15.0
     }
     
+    private func prefetchNextVideos() {
+        let nextIndices = [currentSlideIndex + 1, currentSlideIndex + 2]
+        let videosToCache = nextIndices.compactMap { index -> URL? in
+            guard index < slides.count, let videoUrl = slides[index].video, !videoUrl.isEmpty else {
+                return nil
+            }
+            return URL(string: videoUrl)
+        }
+        
+        if !videosToCache.isEmpty {
+            VideoCacheManager.shared.prefetchVideos(urls: videosToCache)
+        }
+    }
+    
     private func setupMedia() {
         if let existingPlayer = player {
             existingPlayer.pause()
@@ -326,8 +346,10 @@ struct StoryScreen: View {
         }
         if isImage {
             startImageTimer()
-        } else if let videoUrl = currentSlide.video, let url = URL(string: videoUrl) {
-            let asset = AVAsset(url: url)
+        } else if let videoUrl = currentSlide.video, let originalUrl = URL(string: videoUrl) {
+            let videoURL = VideoCacheManager.shared.cachedURLForVideo(originalURL: originalUrl)
+            
+            let asset = AVAsset(url: videoURL)
             let playerItem = AVPlayerItem(asset: asset)
             let localPlayer = AVPlayer(playerItem: playerItem)
             
@@ -362,6 +384,9 @@ struct StoryScreen: View {
                 Task { @MainActor in
                     self.handleSlideCompletion()
                 }
+            }
+            if !VideoCacheManager.shared.isVideoCached(url: originalUrl) {
+                VideoCacheManager.shared.cacheVideo(url: originalUrl)
             }
         }
     }
@@ -455,6 +480,7 @@ struct StoriesApp: View {
                     storyViewed(storyGroup.id)
                 }
             )
+            .safeAreaInset(edge: .bottom) { Color.clear.frame(height: 0) }
         }
         .fullScreenCover(item: $selectedStoryGroup) { storyGroup in
             StoryScreen(
@@ -496,16 +522,19 @@ struct StoryAppMain: View {
                 }
             }
         )
+        .edgesIgnoringSafeArea([])
         .onAppear {
             configureSDWebImage()
             loadViewedStories()
             sortStoryGroups()
             prefetchThumbnails()
+            prefetchFirstSlideVideos()
         }
         .onChange(of: viewedStories) { _ in
             sortStoryGroups()
         }
     }
+    
     private func configureSDWebImage() {
         SDImageCache.shared.config.maxMemoryCost = 100 * 1024 * 1024
         SDImageCache.shared.config.maxDiskSize = 200 * 1024 * 1024
@@ -527,6 +556,20 @@ struct StoryAppMain: View {
         SDWebImagePrefetcher.shared.prefetchURLs(firstSlideUrls)
     }
     
+    private func prefetchFirstSlideVideos() {
+        let firstSlideVideoUrls = apiStoryGroups.compactMap { group -> URL? in
+            guard let firstSlide = group.slides.first,
+                  let videoUrl = firstSlide.video,
+                  !videoUrl.isEmpty else {
+                return nil
+            }
+            return URL(string: videoUrl)
+        }
+        
+        if !firstSlideVideoUrls.isEmpty {
+            VideoCacheManager.shared.prefetchVideos(urls: firstSlideVideoUrls)
+        }
+    }
     
     private func sortStoryGroups() {
         storyGroups = apiStoryGroups.sorted { first, second in
@@ -583,13 +626,10 @@ public struct StoriesView: View {
                         }
                     }
                 }
-                
             )
         }
     }
-    
 }
-
 struct ActivityView: UIViewControllerRepresentable {
     let activityItems: [Any]
     let applicationActivities: [UIActivity]? = nil
