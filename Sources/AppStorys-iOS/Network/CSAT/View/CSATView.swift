@@ -6,9 +6,11 @@
 
 import SwiftUI
 
-public struct CsatView: View {
-    
+
+// Updated CSAT View for Overlay - preserves exact same UI and functionality
+struct OverlayCsatView: View {
     @ObservedObject private var apiService: AppStorys
+    private let heightUpdateCallback: (CGFloat) -> Void
     @State private var showCSAT: Bool = true
     @State private var selectedStars: Int = 0
     @State private var showThanks: Bool = false
@@ -17,74 +19,103 @@ public struct CsatView: View {
     @State private var csatLoaded: Bool = false
     @State private var additionalComments: String = ""
     
-    public init(apiService: AppStorys) {
+    init(apiService: AppStorys, heightUpdateCallback: @escaping (CGFloat) -> Void) {
         self.apiService = apiService
+        self.heightUpdateCallback = heightUpdateCallback
     }
     
-    public var body: some View {
+    var body: some View {
         if showCSAT, let csatCampaign = apiService.csatCampaigns.first {
             if case let .csat(details) = csatCampaign.details {
-                VStack {
-                    Spacer()
-                    ZStack(alignment: .topTrailing) {
-                        if csatLoaded {
-                            VStack(alignment: .leading) {
-                                if showThanks {
-                                    thanksView()
-                                } else {
-                                    surveyView()
+                ZStack(alignment: .topTrailing) {
+                    if csatLoaded {
+                        VStack(alignment: .leading) {
+                            if showThanks {
+                                thanksView()
+                            } else {
+                                surveyView()
+                            }
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(hexToColor(details.styling?.csatBackgroundColor ?? ""))
+                        .cornerRadius(24)
+                        .background(
+                            // Hidden view to measure height
+                            GeometryReader { geometry in
+                                Color.clear.onAppear {
+                                    heightUpdateCallback(geometry.size.height + 40) // +40 for padding
+                                }
+                                .onChange(of: showFeedback) { _ in
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        heightUpdateCallback(geometry.size.height + 40)
+                                    }
+                                }
+                                .onChange(of: showThanks) { _ in
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        heightUpdateCallback(geometry.size.height + 40)
+                                    }
                                 }
                             }
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(hexToColor(details.styling!.csatBackgroundColor ?? ""))
-                            .cornerRadius(24)
-                            .padding(.horizontal, 20)
-                            .transition(.move(edge: .bottom))
-                        }
-                        
-                        if csatLoaded {
-                            Button(action: {
-                                showCSAT = false
-                            }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.gray)
-                                    .font(.title2)
-                                    .padding(10)
-                            }
-                            .offset(x: -20, y: 0)
-                        }
+                        )
+                        .transition(.move(edge: .bottom))
                     }
-                        .animation(.easeInOut(duration: 0.3), value: showFeedback)
+                    
+                    if csatLoaded {
+                        Button(action: {
+                            showCSAT = false
+                            apiService.hideCsatOverlay()
+                            UserDefaults.standard.set(true, forKey: "CSATAlreadyShown")
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.gray)
+                                .font(.title2)
+                                .padding(10)
+                        }
+                        .offset(x: 0, y: 0)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                
+                .animation(.easeInOut(duration: 0.3), value: showFeedback)
                 .onAppear {
                     csatLoaded = false
                     
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         csatLoaded = true
                     }
-                    trackAction(campaignID: csatCampaign.id, actionType: .view)
+                    Task {
+                        await apiService.trackEvents(eventType: "viewed", campaignId: csatCampaign.id)
+                    }
                     scheduleCsatDisplay()
                 }
             }
+        } else {
+            // Empty view when CSAT is hidden
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
     
     private func submitFeedback() {
         if let csatCampaign = apiService.csatCampaigns.first {
-            if case let .csat(details) = csatCampaign.details   {
+            if case let .csat(details) = csatCampaign.details {
                 captureCsatResponse(csatId: details.id, userId: KeychainHelper.shared.get(key: "userIDAppStorys")!, rating: selectedStars, feedbackOption: selectedOption, additionalComments: additionalComments)
+                print("done")
             }
         }
         showThanks = true
-        
     }
     
-    private func captureCsatResponse(csatId: String, userId: String, rating: Int, feedbackOption: String?, additionalComments: String?) {
+    private func captureCsatResponse(
+        csatId: String,
+        userId: String,
+        rating: Int,
+        feedbackOption: String?,
+        additionalComments: String?
+    ) {
         guard let userID = KeychainHelper.shared.get(key: "userIDAppStorys"),
               let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys") else {
+            print("❌ Missing userID or accessToken in Keychain")
             return
         }
         
@@ -104,16 +135,33 @@ public struct CsatView: View {
         
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
+        // 🔍 Log outgoing request
+        print("📤 Sending CSAT response request:")
+        print("🔗 URL: \(url.absoluteString)")
+        print("📝 Body: \(body)")
+        
         URLSession.shared.dataTask(with: request) { data, response, error in
-            if error != nil {
+            if let error = error {
+                print("❌ Request failed: \(error.localizedDescription)")
                 return
             }
-            guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("❌ No valid HTTP response")
                 return
+            }
+            
+            print("📥 Response status code: \(httpResponse.statusCode)")
+            
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data, options: []) {
+                print("📦 Response JSON: \(json)")
+            } else {
+                print("ℹ️ No response body or failed to parse JSON")
             }
         }.resume()
     }
-    
+
     @ViewBuilder
     private func surveyView() -> some View {
         if let csatCampaign = apiService.csatCampaigns.first {
@@ -122,17 +170,17 @@ public struct CsatView: View {
                     Text(details.title)
                         .font(.title2)
                         .fontWeight(.bold)
-                        .foregroundColor(hexToColor(details.styling!.csatTitleColor))
+                        .foregroundColor(hexToColor(details.styling?.csatTitleColor ?? ""))
 
-                    Text(details.descriptionText!)
-                        .foregroundColor(hexToColor(details.styling!.csatTitleColor))
+                    Text(details.descriptionText ?? "")
+                        .foregroundColor(hexToColor(details.styling?.csatTitleColor ?? ""))
 
                     starRatingView(details: details)
                         .id(selectedStars)
 
                     if showFeedback {
                         Text("Please tell us what went wrong?")
-                            .foregroundColor(hexToColor(details.styling!.csatTitleColor))
+                            .foregroundColor(hexToColor(details.styling?.csatTitleColor ?? ""))
                             .padding(.top, 10)
 
                         feedbackOptionsView(details: details)
@@ -140,7 +188,7 @@ public struct CsatView: View {
                         TextField("Additional comments", text: $additionalComments)
                             .padding(.vertical, 8)
                             .background(Color.clear)
-                            .foregroundColor(hexToColor(details.styling!.csatAdditionalTextColor ?? ""))
+                            .foregroundColor(hexToColor(details.styling?.csatAdditionalTextColor ?? ""))
                             .overlay(Rectangle().frame(height: 1).foregroundColor(.gray), alignment: .bottom)
                             .padding(.top, 10)
 
@@ -151,19 +199,20 @@ public struct CsatView: View {
                             }
 
                             let campaignID = csatCampaign.id
-                            let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys")
 
                             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                if !campaignID.isEmpty, accessToken != nil {
-                                    trackAction(campaignID: campaignID, actionType: .click)
+                                if !campaignID.isEmpty {
+                                    Task {
+                                        await apiService.trackEvents(eventType: "clicked", campaignId: campaignID)
+                                    }
                                 }
                             }
                         }) {
                             Text("Done")
                                 .font(.headline)
-                                .foregroundColor(hexToColor(details.styling!.csatCtaTextColor))
+                                .foregroundColor(hexToColor(details.styling?.csatCtaTextColor ?? ""))
                                 .frame(width: 100, height: 50)
-                                .background(hexToColor(details.styling!.csatCtaBackgroundColor ?? ""))
+                                .background(hexToColor(details.styling?.csatCtaBackgroundColor ?? ""))
                                 .cornerRadius(25)
                         }
                     }
@@ -180,9 +229,9 @@ public struct CsatView: View {
                     .foregroundColor(
                         index <= selectedStars ?
                             (selectedStars <= 3 ?
-                                hexToColor(details.styling!.csatLowStarColor ?? "#FFC107") :
-                                hexToColor(details.styling!.csatHighStarColor ?? "#4CAF50")) :
-                            hexToColor(details.styling!.csatUnselectedStarColor ?? "#808080")
+                                hexToColor(details.styling?.csatLowStarColor ?? "#FFC107") :
+                                hexToColor(details.styling?.csatHighStarColor ?? "#4CAF50")) :
+                            hexToColor(details.styling?.csatUnselectedStarColor ?? "#808080")
                     )
                     .font(.title)
                     .onTapGesture {
@@ -239,30 +288,32 @@ public struct CsatView: View {
         }
     }
 
-
-
     @ViewBuilder
     private func thanksView() -> some View {
         if let csatCampaign = apiService.csatCampaigns.first {
             if case let .csat(details) = csatCampaign.details {
                 VStack(spacing: 8) {
                     
-                    if let imageUrl = URL(string: details.thankyouImage!), !details.thankyouImage!.isEmpty {
-                        AsyncImage(url: imageUrl) { image in
-                            image.resizable()
-                                .scaledToFit()
-                                .frame(height: 66)
-                        } placeholder: {
-                            ProgressView()
+                    if let imageUrl = URL(string: details.thankyouImage ?? ""), !(details.thankyouImage ?? "").isEmpty {
+                        if #available(iOS 15.0, *) {
+                            AsyncImage(url: imageUrl) { image in
+                                image.resizable()
+                                    .scaledToFit()
+                                    .frame(height: 66)
+                            } placeholder: {
+                                ProgressView()
+                            }
+                        } else {
+                            // Fallback on earlier versions
                         }
                     }
                     
-                    Text(details.thankyouText!)
+                    Text(details.thankyouText ?? "")
                         .font(.title3)
                         .fontWeight(.bold)
                         .foregroundColor(.black)
                     
-                    Text(details.thankyouDescription!)
+                    Text(details.thankyouDescription ?? "")
                         .foregroundColor(.gray)
                     
                     Button(action: {
@@ -270,28 +321,23 @@ public struct CsatView: View {
                         if !details.link.isEmpty {
                             let urlString = details.link
                             
-                            
                             if let url = URL(string: urlString) {
                                 if UIApplication.shared.canOpenURL(url) {
-                                    
                                     UIApplication.shared.open(url)
-                                } else {
-                                    
                                 }
-                            } else {
-                                
                             }
-                        } else {
-                            
                         }
+                        
                         showCSAT = false
+                        apiService.hideCsatOverlay()
+                        UserDefaults.standard.set(true, forKey: "CSATAlreadyShown")
                         KeychainHelper.shared.save("true", key: "csat_loaded")
                     }) {
                         Text("Done")
                             .font(.headline)
-                            .foregroundColor(hexToColor(details.styling!.csatCtaTextColor))
+                            .foregroundColor(hexToColor(details.styling?.csatCtaTextColor ?? ""))
                             .frame(width: 100, height: 50)
-                            .background(hexToColor(details.styling!.csatCtaBackgroundColor ?? ""))
+                            .background(hexToColor(details.styling?.csatCtaBackgroundColor ?? ""))
                             .cornerRadius(25)
                     }
                 }
@@ -330,19 +376,19 @@ public struct CsatView: View {
             blue: Double(rgb & 0xFF) / 255.0
         )
     }
-    
-    @MainActor
-    func trackAction(campaignID: String, actionType: ActionType) {
-        guard let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys") else {
-            return
-        }
-        
-        Task {
-            do {
-                await apiService.trackAction(type: actionType, campaignID: campaignID, widgetID: "")
-                
-            }
-        }
-    }
-    
 }
+//    @MainActor
+//    func trackAction(campaignID: String, actionType: ActionType) {
+//        guard let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys") else {
+//            return
+//        }
+//        
+//        Task {
+//            do {
+//                await apiService.trackAction(type: actionType, campaignID: campaignID, widgetID: "")
+//                
+//            }
+//        }
+//    }
+    
+

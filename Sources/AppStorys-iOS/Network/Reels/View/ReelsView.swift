@@ -19,35 +19,39 @@ struct ReelsRow: View {
     
     var body: some View {
         GeometryReader { geometry in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    Spacer()
-                        .frame(width: 0)
-                        .fixedSize()
-                    
-                    ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
-                        WebImage(url: URL(string: reel.thumbnail))
-                            .resizable()
-                            .indicator(.activity)
-                            .transition(.fade(duration: 0.5))
-                            .scaledToFill()
-                            .frame(width: width, height: height)
-                            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-                            .onTapGesture {
-                                onReelClick(index)
-                            }
-                            .contentShape(Rectangle())
+            if #available(iOS 15.0, *) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        Spacer()
+                            .frame(width: 0)
+                            .fixedSize()
+                        
+                        ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
+                            WebImage(url: URL(string: reel.thumbnail))
+                                .resizable()
+                                .indicator(.activity)
+                                .transition(.fade(duration: 0.5))
+                                .scaledToFill()
+                                .frame(width: width, height: height)
+                                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                                .onTapGesture {
+                                    onReelClick(index)
+                                }
+                                .contentShape(Rectangle())
+                        }
+                        Spacer()
+                            .frame(width: 0)
+                            .fixedSize()
                     }
-                    Spacer()
-                        .frame(width: 0)
-                        .fixedSize()
+                    .padding(.horizontal, 16)
+                    .padding(.leading, geometry.safeAreaInsets.leading)
+                    .padding(.trailing, geometry.safeAreaInsets.trailing)
                 }
-                .padding(.horizontal, 16)
-                .padding(.leading, geometry.safeAreaInsets.leading)
-                .padding(.trailing, geometry.safeAreaInsets.trailing)
+                .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
+                .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
+            } else {
+                // Fallback on earlier versions
             }
-            .safeAreaInset(edge: .leading) { Color.clear.frame(width: 0) }
-            .safeAreaInset(edge: .trailing) { Color.clear.frame(width: 0) }
         }
         .frame(height: height + 32) 
     }
@@ -535,13 +539,13 @@ public struct ReelView: View {
                     sendEvents: { reel, eventType in
                         Task {
                             do {
-                                let type: ActionType = eventType == "IMP" ? .view : .click
-                                try await apiService.trackAction(
-                                    type: type,
-                                    campaignID: campaignID,
-                                    widgetID: nil,
-                                    reelId: reel.id
+                                let type: ActionType = eventType == "viewed" ? .view : .click
+                                apiService.trackEvents(
+                                    eventType: type.rawValue,
+                                    campaignId: campaignID,
+                                    metadata: ["reel_id": reel.id]
                                 )
+
                             } catch {
                                 return
                             }

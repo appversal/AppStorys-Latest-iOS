@@ -41,7 +41,7 @@ public struct WidgetView: View {
         static let dotDefaultSize: CGFloat = 10
         static let dotCornerRadius: CGFloat = 5
         static let selectedDotWidth: CGFloat = 25
-        static let visibilityThreshold: CGFloat = 0.5 // 50% visibility threshold
+        static let visibilityThreshold: CGFloat = 0.5
     }
     
     public init(apiService: AppStorys, position: String?, delegate: WidgetViewDelegate?) {
@@ -270,7 +270,11 @@ public struct WidgetView: View {
         if let widgetCampaign = widgetCampaign,
            case .widget(_) = widgetCampaign.details {
             Task {
-                try? await apiService.trackAction(type: .view, campaignID: widgetCampaign.id, widgetID: imageID)
+                try await apiService.trackEvents(
+                    eventType: "viewed",
+                    campaignId:  widgetCampaign.id,
+                    metadata: ["widget_image": imageID]
+                )
             }
         }
     }
@@ -284,7 +288,11 @@ public struct WidgetView: View {
         }
         Task {
             do {
-                try await apiService.trackAction(type: .click, campaignID: widgetCampaign.id, widgetID: imageID)
+                try await apiService.trackEvents(
+                    eventType: "clicked",
+                    campaignId:  widgetCampaign.id,
+                    metadata: ["widget_image": imageID]
+                )
             } catch {
             }
         }

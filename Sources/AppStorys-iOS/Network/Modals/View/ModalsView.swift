@@ -26,28 +26,29 @@ public struct PopupModal: View {
         Group {
             if showModal, let modalsCampaign = apiService.modalsCampaigns.first {
                 if case let .modals(details) = modalsCampaign.details, !details.modals.isEmpty {
-                    ModalContentView(
-                        details: details,
-                        onCloseClick: onCloseClick,
-                        onDismiss: { showModal = false },
-                        openURL: openURL,
-                        campaignID: modalsCampaign.id,
-                        apiService: apiService
-                    )
-                    .task {
-                        do {
-                            print("action tracked for view")
-                            try await apiService.trackAction(
-                                type: .view,
-                                campaignID: modalsCampaign.id,
-                                widgetID: ""
-                            )
-                        } catch {
-                            print("Failed to track view action: \(error.localizedDescription)")
+                    if #available(iOS 15.0, *) {
+                        ModalContentView(
+                            details: details,
+                            onCloseClick: onCloseClick,
+                            onDismiss: {
+                                showModal = false
+                                apiService.hideModalOverlay()
+                                UserDefaults.standard.set(true, forKey: "ModalsAlreadyShown")
+                            },
+                            openURL: openURL,
+                            campaignID: modalsCampaign.id,
+                            apiService: apiService
+                        )
+                        .task {
+                            do {
+                                try await apiService.trackEvents(eventType: "viewed", campaignId: modalsCampaign.id)
+                            } catch {
+                            }
                         }
+                    } else {
+                        // Fallback on earlier versions
                     }
                 } else {
-                    // Handle case where modals details are invalid
                     EmptyView()
                 }
             } else {
@@ -85,13 +86,8 @@ private struct ModalItemView: View {
     private func handleTap() {
         Task {
             do {
-                try await apiService.trackAction(
-                    type: .click,
-                    campaignID: campaignID,
-                    widgetID: ""
-                )
+                try await apiService.trackEvents(eventType: "clicked", campaignId: campaignID)
             } catch {
-                print("Failed to track click action: \(error.localizedDescription)")
             }
         }
         
@@ -100,7 +96,7 @@ private struct ModalItemView: View {
     
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            if modal.mediaType.uppercased() == "LOTTIE" {
+            if modal.mediaType?.uppercased() == "LOTTIE" {
                 LottieAnimationView(
                     url: modal.url,
                     width: size,
@@ -188,7 +184,6 @@ private struct ModalContentView: View {
     
     var body: some View {
         ZStack {
-            // Get background opacity with safe fallback
             let opacity = details.modals.first?.backgroundOpacity ?? 0.5
             
             BackgroundOverlay(
@@ -198,8 +193,7 @@ private struct ModalContentView: View {
                     onCloseClick()
                 }
             )
-            
-            // Only render modals if they exist
+
             if !details.modals.isEmpty {
                 ForEach(details.modals) { modal in
                     ModalItemView(

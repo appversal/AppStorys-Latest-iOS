@@ -19,6 +19,8 @@ public struct Survey: View {
     }
     private func closeSurvey() {
         showSurvey = false
+        apiService.hideSurveyOverlay()
+        UserDefaults.standard.set(true, forKey: "SurveyAlreadyShown")
     }
     
     private func hexToColor(_ hex: String) -> Color {
@@ -60,7 +62,6 @@ public struct Survey: View {
                             let surveyQuestion = details.surveyQuestion
                             let surveyOptions = details.surveyOptions
                             let hasOthers = details.hasOthers
-                            let campaign = details.campaign
                             VStack {
                                 Spacer()
                                 
@@ -183,7 +184,10 @@ public struct Survey: View {
                             .frame(width: geometry.size.width)
                                 .onAppear {
                                     Task {
-                                        await apiService.trackAction(type: .view, campaignID: surveyCampaign.id, widgetID: "")
+                                        await apiService.trackEvents(
+                                            eventType: "viewed",
+                                            campaignId: surveyCampaign.id
+                                        )
                                     }
                                 }
                         }
@@ -232,8 +236,14 @@ public struct Survey: View {
         return options
     }
     
-    private func captureSurveyResponse(surveyId: String, userId: String, selectedOptions: [String], comment: String?) {
+    private func captureSurveyResponse(
+        surveyId: String,
+        userId: String,
+        selectedOptions: [String],
+        comment: String?
+    ) {
         guard let accessToken = KeychainHelper.shared.get(key: "accessTokenAppStorys") else {
+            print("❌ No access token found in Keychain")
             return
         }
         
@@ -252,13 +262,29 @@ public struct Survey: View {
         
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
+        print("📤 Sending survey response request:")
+        print("🔗 URL: \(url.absoluteString)")
+        print("📝 Body: \(body)")
+        
         URLSession.shared.dataTask(with: request) { data, response, error in
-            if error != nil {
+            if let error = error {
+                print("❌ Request failed with error: \(error.localizedDescription)")
                 return
             }
-            guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("❌ Invalid response received")
                 return
+            }
+            
+            print("📥 Response status code: \(httpResponse.statusCode)")
+            
+            if let data = data, let json = try? JSONSerialization.jsonObject(with: data, options: []) {
+                print("📦 Response JSON: \(json)")
+            } else {
+                print("ℹ️ No response body or failed to parse JSON")
             }
         }.resume()
     }
+
 }

@@ -45,19 +45,23 @@ public class AVPlayerManager: ObservableObject {
     }
 }
 
-public struct PipView: View {
+// Updated PIP View for Overlay - preserves exact same UI and functionality
+struct OverlayPipView: View {
     @State private var isMuted = false
     @State private var isVisible = true
     @State private var position = CGSize.zero
-    @State private var showFullScreen = false
     @StateObject private var playerManager = AVPlayerManager()
     @ObservedObject private var apiService: AppStorys
+    private let positionUpdateCallback: (CGSize) -> Void
+    private let showFullScreenCallback: () -> Void
     
-    public init(apiService: AppStorys) {
+    init(apiService: AppStorys, positionUpdateCallback: @escaping (CGSize) -> Void, showFullScreenCallback: @escaping () -> Void) {
         self.apiService = apiService
+        self.positionUpdateCallback = positionUpdateCallback
+        self.showFullScreenCallback = showFullScreenCallback
     }
 
-    public var body: some View {
+    var body: some View {
         if isVisible {
             if let pipCampaign = apiService.pipCampaigns.first {
                 if case let .pip(details) = pipCampaign.details,
@@ -70,7 +74,6 @@ public struct PipView: View {
                             .frame(width: videoWidth, height: videoHeight)
                             .cornerRadius(15)
                             .shadow(radius: 5)
-                            .offset(x: position.width, y: position.height)
                             .gesture(
                                 DragGesture()
                                     .onChanged { gesture in
@@ -89,17 +92,24 @@ public struct PipView: View {
                                             let minY = (-screenHeight / 2 + halfHeight) + topSafeArea
                                             let maxY = (screenHeight / 2 - halfHeight) - bottomSafeArea
                                             
-                                            position.width = max(minX, min(maxX, gesture.translation.width))
-                                            position.height = max(minY, min(maxY, gesture.translation.height))
+                                            let newPositionWidth = max(minX, min(maxX, gesture.translation.width))
+                                            let newPositionHeight = max(minY, min(maxY, gesture.translation.height))
+                                            
+                                            let newPosition = CGSize(width: newPositionWidth, height: newPositionHeight)
+                                            position = newPosition
+                                            
+                                            // Update window position
+                                            positionUpdateCallback(newPosition)
                                         }
                                     }
                                     .onEnded { _ in
                                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7, blendDuration: 0.2)) {
+                                            // Snap to edges or handle final positioning if needed
                                         }
                                     }
                             )
                             .onTapGesture {
-                                showFullScreen = true
+                                showFullScreenCallback()
                             }
                             .onAppear {
                                 if position == .zero {
@@ -118,14 +128,19 @@ public struct PipView: View {
                                         default:
                                             position = CGSize(width: horizontalOffset, height: verticalOffset)
                                         }
+                                    } else {
+                                        position = CGSize(width: horizontalOffset, height: verticalOffset)
                                     }
+                                    
+                                    // Initialize window position
+                                    positionUpdateCallback(position)
                                 }
                                 playerManager.updateVideoURL(videoURL)
                                 playerManager.play()
                                 prefetchOtherCampaignVideos(currentURL: videoURL)
                                 
                                 Task {
-                                    await apiService.trackAction(type: .view, campaignID: pipCampaign.id, widgetID: "")
+                                    await apiService.trackEvents(eventType: "viewed", campaignId: pipCampaign.id)
                                 }
                             }
                         
@@ -152,6 +167,8 @@ public struct PipView: View {
                                 
                                 Button(action: {
                                     isVisible = false
+                                    apiService.hidePipOverlay()
+                                    UserDefaults.standard.set(true, forKey: "PipAlreadyShown")
                                     playerManager.player.pause()
                                 }) {
                                     Image(systemName: "xmark")
@@ -171,25 +188,18 @@ public struct PipView: View {
                         }
                         .padding(.bottom, videoHeight - 40)
                         .frame(width: videoWidth, height: videoHeight)
-                        .offset(x: position.width, y: position.height)
                         
                         VStack {
                             HStack {
                                 Spacer()
                                 Button(action: {
-                                    if showFullScreen {
-                                        showFullScreen = false
-                                        isVisible = true
-                                    } else {
-                                        showFullScreen = true
-                                    }
+                                    showFullScreenCallback()
                                 }) {
                                     Image(systemName: "arrow.up.left.and.arrow.down.right.rectangle")
                                         .resizable()
                                         .scaledToFit()
                                         .frame(width: 12, height: 12)
                                         .padding(4)
-                                        .foregroundStyle(Color.white)
                                         .background(Color.black)
                                         .clipShape(Circle())
                                 }
@@ -201,26 +211,10 @@ public struct PipView: View {
                             }
                         }
                         .padding(.top, videoHeight - 40)
-                        .offset(x: position.width, y: position.height)
                         .frame(width: videoWidth, height: videoHeight)
                     }
                     .frame(width: videoWidth, height: videoHeight)
                     .animation(.easeInOut, value: isVisible)
-                    .fullScreenCover(isPresented: $showFullScreen, onDismiss: {
-                        isVisible = true
-                        isMuted = false
-                        playerManager.player.isMuted = false
-                    }) {
-                        FullScreenPipView(
-                            isVisible: $showFullScreen, isPipVisible: $isVisible, apiService: apiService
-                        )
-                    }
-                    .onChange(of: showFullScreen) { newValue in
-                        if newValue {
-                            isMuted = true
-                            playerManager.player.isMuted = true
-                        }
-                    }
                 } else {
                     ProgressView("Loading...")
                         .padding()
@@ -238,8 +232,7 @@ public struct PipView: View {
                    let smallVideoURL = URL(string: smallVideoStr) {
                     videosToCache.append(smallVideoURL)
                 }
-                if let fullScreenVideoStr = details.largeVideo
-                    ,
+                if let fullScreenVideoStr = details.largeVideo,
                    let fullScreenURL = URL(string: fullScreenVideoStr) {
                     videosToCache.append(fullScreenURL)
                 }

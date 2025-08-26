@@ -30,7 +30,6 @@ final class VideoCacheManager : NSObject {
         }
         loadCachedVideos()
     }
-
     func cachedURLForVideo(originalURL: URL) -> URL {
         if let cachedURL = cachedVideoURLs[originalURL] {
             cacheHits += 1

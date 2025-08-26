@@ -12,7 +12,6 @@ struct CsatDetails: Identifiable, Codable {
     let thankyouDescription: String?
     let descriptionText: String?
     let feedbackOption: FeedbackOptions
-    let campaign: String
     let link: String
     
     private enum CodingKeys: String, CodingKey {
@@ -22,7 +21,7 @@ struct CsatDetails: Identifiable, Codable {
         case thankyouDescription = "thankyouDescription"
         case descriptionText = "description_text"
         case feedbackOption = "feedback_option"
-        case campaign, link
+        case  link
     }
 }
 

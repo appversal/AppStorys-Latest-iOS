@@ -60,6 +60,8 @@ enum LinkType: Codable {
 
 struct BannerStyling: Codable {
     let marginBottom: String?
+    let marginLeft: String?
+    let marginRight: String?
     let topLeftRadius: String?
     let topRightRadius: String?
     let bottomLeftRadius: String?
@@ -67,7 +69,7 @@ struct BannerStyling: Codable {
     let enableCloseButton: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case marginBottom, topLeftRadius, topRightRadius, bottomLeftRadius, bottomRightRadius, enableCloseButton
+        case marginBottom, marginLeft, marginRight,topLeftRadius, topRightRadius, bottomLeftRadius, bottomRightRadius, enableCloseButton
     }
 
     init(from decoder: Decoder) throws {
@@ -84,6 +86,8 @@ struct BannerStyling: Codable {
             }
         }
         marginBottom = decodeStringOrNumber(forKey: .marginBottom)
+        marginLeft = decodeStringOrNumber(forKey: .marginLeft)
+        marginRight = decodeStringOrNumber(forKey: .marginRight)
         topLeftRadius = decodeStringOrNumber(forKey: .topLeftRadius)
         topRightRadius = decodeStringOrNumber(forKey: .topRightRadius)
         bottomLeftRadius = decodeStringOrNumber(forKey: .bottomLeftRadius)

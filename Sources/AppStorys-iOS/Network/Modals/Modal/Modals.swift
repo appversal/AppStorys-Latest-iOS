@@ -22,8 +22,8 @@ struct ModalsDetails: Codable, Identifiable {
 }
 
 struct Modal: Codable, Identifiable {
-    let id: String
-    let mediaType: String
+    let id: String?
+    let mediaType: String?
     let size: String
     let link: LinkType
     let borderRadius: String
