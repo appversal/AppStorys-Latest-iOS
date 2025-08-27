@@ -10,14 +10,22 @@ import SDWebImageSwiftUI
 extension View {
     func italicIfNeeded(_ decoration: String?) -> some View {
             if decoration?.lowercased().contains("italic") == true {
-                return AnyView(self.italic())
+                if #available(iOS 16.0, *) {
+                    return AnyView(self.italic())
+                } else {
+                    // Fallback on earlier versions
+                }
             }
             return AnyView(self)
         }
 
         func underlineIfNeeded(_ decoration: String?) -> some View {
             if decoration?.lowercased().contains("underline") == true {
-                return AnyView(self.underline())
+                if #available(iOS 16.0, *) {
+                    return AnyView(self.underline())
+                } else {
+                    // Fallback on earlier versions
+                }
             }
             return AnyView(self)
         }
@@ -48,6 +56,9 @@ public struct BottomSheetView: View {
     @Binding var isShowing: Bool
     @State private var loadedImages: [String: Image] = [:]
     @State private var imageData: [String: UIImage] = [:]
+    @State private var dragOffset: CGFloat = 0
+    @GestureState private var isDragging = false
+    @State private var offsetY: CGFloat = UIScreen.main.bounds.height
     
     public init(apiService: AppStorys, isShowing: Binding<Bool>) {
         self.apiService = apiService
@@ -61,23 +72,89 @@ public struct BottomSheetView: View {
         }
         return nil
     }
-    
+
+    @ViewBuilder
     public var body: some View {
         if let details = bottomSheetDetails {
-            Color.black.opacity(0.4)
-                .edgesIgnoringSafeArea(.all)
-                .onTapGesture {
-                    isShowing = false
+            if let overlayValue = details.elements.first?.overlayButton, overlayValue == true {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .edgesIgnoringSafeArea(.all)
+                        .onTapGesture {
+                            withAnimation {
+                                isShowing = false
+                            }
+                        }
+
+                    bottomSheetContent(details: details)
+                        .transition(.move(edge: .bottom))
+                        .animation(.easeOut(duration: 0.3), value: isShowing)
+                }
+            } else {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .edgesIgnoringSafeArea(.all)
+                        .onTapGesture {
+                            withAnimation {
+                                isShowing = false
+                            }
+                        }
+
+
+                    VStack {
+                        Spacer()
+                        VStack(spacing: 0) {
+                            ForEach(sortedElements(from: details.elements)) { element in
+                                renderElement(element)
+                            }
+                        }
+                        .cornerRadius(CGFloat(Int(details.cornerRadius ?? "16") ?? 16), corners: [.topLeft, .topRight])
+                        .shadow(radius: 5)
+                        .offset(y: dragOffset)
+                        .gesture(
+                            DragGesture()
+                                .updating($isDragging) { value, state, _ in
+                                    if value.translation.height > 0 {
+                                        dragOffset = value.translation.height
+                                    }
+                                }
+                                .onEnded { value in
+                                    if value.translation.height > 100 {
+                                        withAnimation {
+                                            isShowing = false
+                                        }
+                                    } else {
+                                        withAnimation {
+                                            dragOffset = 0
+                                        }
+                                    }
+                                }
+                        )
+                    }
+                    .edgesIgnoringSafeArea(.bottom)
+                    .transition(.move(edge: .bottom))
+                    .animation(.easeOut(duration: 0.3), value: isShowing)
+                    .onAppear{
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                                isShowing = true
+                            }
+                        }
+                    }
                 }
 
-            bottomSheetContent(details: details)
-            
+            }
         } else {
             Text("No content available")
                 .padding()
         }
     }
 
+
+    private func sortedElements(from elements: [Element]) -> [Element] {
+        return elements.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
+    }
+    
     @ViewBuilder
     private func bottomSheetContent(details: BottomSheetDetails) -> some View {
         VStack(spacing: 0) {
@@ -87,7 +164,9 @@ public struct BottomSheetView: View {
                     HStack {
                         Spacer()
                         Button(action: {
-                            isShowing = false
+                            withAnimation {
+                                isShowing = false
+                            }
                         }) {
                             Image(systemName: "xmark")
                                 .foregroundColor(.gray)
@@ -101,21 +180,43 @@ public struct BottomSheetView: View {
                 let ctaElements = sortedElements.filter { $0.type == .cta }
                 createCombinedView(imageElements: imageElements, bodyElements: bodyElements, ctaElements: ctaElements)
             }
-            .cornerRadius(CGFloat(Int(details.cornerRadius) ?? 16), corners: [.topLeft, .topRight])
+            .cornerRadius(CGFloat(Int(details.cornerRadius!) ?? 16), corners: [.topLeft, .topRight])
+            .shadow(radius: 5)
+            .offset(y: dragOffset)
+            .gesture(
+                DragGesture()
+                    .updating($isDragging) { value, state, _ in
+                        if value.translation.height > 0 {
+                            dragOffset = value.translation.height
+                        }
+                    }
+                    .onEnded { value in
+                        if value.translation.height > 100 {
+                            withAnimation {
+                                isShowing = false
+                            }
+                        } else {
+                            withAnimation {
+                                dragOffset = 0
+                            }
+                        }
+                    }
+            )
         }
         .edgesIgnoringSafeArea(.bottom)
+        .transition(.move(edge: .bottom))
         .onAppear {
             loadImages()
             if let campaign = apiService.bottomSheetsCampaigns.first {
                 Task {
-                    await apiService.trackAction(type: .view, campaignID: campaign.id, widgetID: "")
+                    await apiService.trackEvents(eventType: "viewed", campaignId: campaign.id)
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                withAnimation(.spring()) {
-                    isShowing = true
-                }
-            }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation(.spring(response: 3, dampingFraction: 0.8)) {
+                                isShowing = true
+                            }
+                        }
         }
     }
     
@@ -202,17 +303,15 @@ public struct BottomSheetView: View {
             .font(getFontSize(element.ctaFontSizeValue, fontFamily: element.ctaFontFamily ?? "Arial"))
             .underline(element.ctaFontDecoration?.lowercased() == "underline")
             .fontWeight(getFontWeight(element.ctaFontDecoration))
-            .italicIfNeeded(element.descriptionFontStyle?.decoration)
-            .underlineIfNeeded(element.descriptionFontStyle?.decoration)
-            .frame(
-                height: (element.ctaHeight != nil && element.ctaHeight! > 0) ? CGFloat(element.ctaHeight!) : 50
-            )
+            // .italicIfNeeded(element.descriptionFontStyle?.decoration)
+            // .underlineIfNeeded(element.descriptionFontStyle?.decoration)
+            .frame(height: (element.ctaHeight != nil && element.ctaHeight! > 0) ? CGFloat(element.ctaHeight!) : 50)
             .frame(maxWidth: element.ctaFullWidth == true ? .infinity : nil)
             .padding(.horizontal, 20)
             .background(Color(hex: element.ctaBoxColor ?? "#0000FF"))
             .cornerRadius(CGFloat(element.ctaBorderRadius ?? 20))
-            .shadow(color: .black.opacity(0.3), radius: 5, x: 2, y: 2)
     }
+
     
     @ViewBuilder
     private func advancedHorizontalCTAButtonsView(_ elements: [Element]) -> some View {
@@ -267,7 +366,7 @@ public struct BottomSheetView: View {
             let aspectRatio = uiImage.size.height / uiImage.size.width
             let baseWidth: CGFloat = UIScreen.main.bounds.width
             let calculatedHeight = baseWidth * aspectRatio
-            return min(max(calculatedHeight, 300), 600)
+            return min(max(calculatedHeight, 50), 600)
         }
         return 600
     }
@@ -329,27 +428,31 @@ public struct BottomSheetView: View {
     
     @ViewBuilder
     private func bodyView(_ element: Element) -> some View {
-        VStack(alignment: horizontalAlignment(for: element.alignment),  spacing: CGFloat(element.spacingBetweenTitleDesc ?? 10)) {
+        VStack(alignment: horizontalAlignment(for: element.alignment)) {
             
             if let titleText = element.titleText, !titleText.isEmpty {
-                Text(titleText)
-                    .font(getFontSize(element.titleFontSizeValue, fontFamily: element.titleFontStyle?.fontFamily ?? "Times New Roman"))
-                    .fontWeight(getFontWeight(element.titleFontStyle?.decoration))
-                    .italicIfNeeded(element.descriptionFontStyle?.decoration)
-                    .underlineIfNeeded(element.descriptionFontStyle?.decoration)
-                    .foregroundColor(Color(hex: element.titleFontStyle?.colour ?? "#0000ff"))
-                    .underline(element.titleFontStyle?.decoration.lowercased() == "underline")
-                    .multilineTextAlignment(textAlignment(for: element.alignment))
-                    .lineSpacing(element.titleLineHeight ?? 1.5)
-                    .fixedSize(horizontal: false, vertical: true)
+                if #available(iOS 16.0, *) {
+                    Text(titleText)
+//                        .font(getFontSize(element.titleFontSizeValue, fontFamily: element.titleFontStyle?.fontFamily ?? "Times New Roman"))
+//                        .fontWeight(getFontWeight(element.titleFontStyle?.decoration))
+//                        .italicIfNeeded(element.descriptionFontStyle?.decoration)
+//                        .underlineIfNeeded(element.descriptionFontStyle?.decoration)
+                        .foregroundColor(Color(hex: element.titleFontStyle?.colour ?? "#0000ff"))
+//                        .underline(element.titleFontStyle?.decoration.lowercased() == "underline")
+                        .multilineTextAlignment(textAlignment(for: element.alignment))
+                        .lineSpacing(element.titleLineHeight ?? 1.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    // Fallback on earlier versions
+                }
             }
             
             if let description = element.descriptionText {
                 Text(description)
-                    .font(getFontSize(element.descriptionFontSizeValue, fontFamily: element.descriptionFontStyle?.fontFamily ?? "Arial"))
-                    .fontWeight(getFontWeight(element.descriptionFontStyle?.decoration))
-                    .italicIfNeeded(element.descriptionFontStyle?.decoration)
-                    .underlineIfNeeded(element.descriptionFontStyle?.decoration)
+//                    .font(getFontSize(element.descriptionFontSizeValue, fontFamily: element.descriptionFontStyle?.fontFamily ?? "Arial"))
+//                    .fontWeight(getFontWeight(element.descriptionFontStyle?.decoration))
+//                    .italicIfNeeded(element.descriptionFontStyle?.decoration)
+//                    .underlineIfNeeded(element.descriptionFontStyle?.decoration)
                     .foregroundColor(Color(hex: element.descriptionFontStyle?.colour ?? "#000000"))
                     .multilineTextAlignment(textAlignment(for: element.alignment))
                     .lineSpacing(element.descriptionLineHeight ?? 1.5)
@@ -366,28 +469,32 @@ public struct BottomSheetView: View {
     
     @ViewBuilder
     private func bodyViewOverlay(_ element: Element) -> some View {
-        VStack(alignment: horizontalAlignment(for: element.alignment),  spacing: CGFloat(element.spacingBetweenTitleDesc ?? 10)) {
+        VStack(alignment: horizontalAlignment(for: element.alignment)) {
             
             if let titleText = element.titleText, !titleText.isEmpty {
-                Text(titleText)
-                    .font(getFontSize(element.titleFontSizeValue, fontFamily: element.titleFontStyle?.fontFamily ?? "Times New Roman"))
-                    .fontWeight(getFontWeight(element.titleFontStyle?.decoration))
-                    .italicIfNeeded(element.descriptionFontStyle?.decoration)
-                    .underlineIfNeeded(element.descriptionFontStyle?.decoration)
-                    .foregroundColor(Color(hex: element.titleFontStyle?.colour ?? "#FFFFFF"))
-                    .underline(element.titleFontStyle?.decoration.lowercased() == "underline")
-                    .multilineTextAlignment(textAlignment(for: element.alignment))
-                    .lineSpacing(element.titleLineHeight ?? 1.5)
-
-                    .fixedSize(horizontal: false, vertical: true)
+                if #available(iOS 16.0, *) {
+                    Text(titleText)
+//                        .font(getFontSize(element.titleFontSizeValue, fontFamily: element.titleFontStyle?.fontFamily ?? "Times New Roman"))
+//                        .fontWeight(getFontWeight(element.titleFontStyle?.decoration))
+//                        .italicIfNeeded(element.descriptionFontStyle?.decoration)
+//                        .underlineIfNeeded(element.descriptionFontStyle?.decoration)
+                        .foregroundColor(Color(hex: element.titleFontStyle?.colour ?? "#FFFFFF"))
+//                        .underline(element.titleFontStyle?.decoration.lowercased() == "underline")
+                        .multilineTextAlignment(textAlignment(for: element.alignment))
+                        .lineSpacing(element.titleLineHeight ?? 1.5)
+                    
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    // Fallback on earlier versions
+                }
             }
             
             if let description = element.descriptionText {
                 Text(description)
-                    .font(getFontSize(element.descriptionFontSizeValue, fontFamily: element.descriptionFontStyle?.fontFamily ?? "Arial"))
-                    .fontWeight(getFontWeight(element.descriptionFontStyle?.decoration))
-                    .italicIfNeeded(element.descriptionFontStyle?.decoration)
-                    .underlineIfNeeded(element.descriptionFontStyle?.decoration)
+//                    .font(getFontSize(element.descriptionFontSizeValue, fontFamily: element.descriptionFontStyle?.fontFamily ?? "Arial"))
+//                    .fontWeight(getFontWeight(element.descriptionFontStyle?.decoration))
+//                    .italicIfNeeded(element.descriptionFontStyle?.decoration)
+//                    .underlineIfNeeded(element.descriptionFontStyle?.decoration)
                     .foregroundColor(Color(hex: element.descriptionFontStyle?.colour ?? "#FFFFFF"))
                     .multilineTextAlignment(textAlignment(for: element.alignment))
                     .lineSpacing(element.descriptionLineHeight ?? 1.5)
@@ -432,6 +539,8 @@ public struct BottomSheetView: View {
                 Spacer()
             }
         }
+        .background(Color(hex: element.ctaBackgroundColor ?? "#0000FF"))
+        .cornerRadius(CGFloat(element.ctaBorderRadius ?? 20))
         .padding(.leading, element.paddingLeftValue)
         .padding(.trailing, element.paddingRightValue)
         .padding(.top, element.paddingTopValue)
@@ -488,7 +597,7 @@ public struct BottomSheetView: View {
     private func handleCTAAction(_ element: Element) {
         if let campaign = apiService.bottomSheetsCampaigns.first {
                 Task {
-                    await apiService.trackAction(type: .click, campaignID: campaign.id, widgetID: "")
+                    await apiService.trackEvents(eventType: "clicked", campaignId: campaign.id)
                 }
                 apiService.clickEvent(link: element.ctaLink, campaignId: campaign.id, widgetImageId: "")
         }

@@ -8,7 +8,7 @@
 import Foundation
 import SwiftUI
 
-struct TooltipDetails: Codable {
+struct TooltipDetails: Codable , Sendable{
     let id: String?
     let campaign: String?
     let name: String?
@@ -21,24 +21,26 @@ struct TooltipDetails: Codable {
     }
 }
 
-public struct Tooltip: Codable {
+public struct Tooltip: Codable, Sendable {
     let type: String?
     let url: String?
     let link: String?
     let target: String?
+    let position: String?
     let order: Int?
     let styling: TooltipStyling?
     let id: String?
     
     enum CodingKeys: String, CodingKey {
-        case type, url, link, target, order, styling
+        case type, url, link, target, position , order, styling
         case id = "_id"
     }
-    public init(type: String?, url: String?, link: String?, target: String?, order: Int?, styling: TooltipStyling?, id: String?) {
+    public init(type: String?, url: String?, link: String?, target: String?, position: String?, order: Int?, styling: TooltipStyling?, id: String?) {
             self.type = type
             self.url = url
             self.link = link
             self.target = target
+            self.position = position
             self.order = order
             self.styling = styling
             self.id = id
@@ -50,6 +52,7 @@ public struct Tooltip: Codable {
         url = try container.decodeIfPresent(String.self, forKey: .url)
         link = try container.decodeIfPresent(String.self, forKey: .link)
         target = try container.decodeIfPresent(String.self, forKey: .target)
+        position = try container.decodeIfPresent(String.self, forKey: .position)
         id = try container.decodeIfPresent(String.self, forKey: .id)
         styling = try container.decodeIfPresent(TooltipStyling.self, forKey: .styling)
         if let orderInt = try? container.decode(Int.self, forKey: .order) {
@@ -63,7 +66,7 @@ public struct Tooltip: Codable {
 }
 
 
-public struct TooltipStyling: Codable {
+public struct TooltipStyling: Codable, Sendable {
     let tooltipDimensions: TooltipDimensions?
     let highlightRadius: String?
     let highlightPadding: String?

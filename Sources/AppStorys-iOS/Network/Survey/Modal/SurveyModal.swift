@@ -7,17 +7,16 @@
 
 import Foundation
 
-public struct SurveyDetails : Codable {
+public struct SurveyDetails : Codable, Sendable {
     let id: String
     let name: String?
     let styling: [String: String]
     let surveyQuestion: String
     let surveyOptions: [String: String]
     let hasOthers: Bool
-    let campaign: String
 }
 
-struct SurveyOption {
+struct SurveyOption  {
     let id: String
     let name: String
 }

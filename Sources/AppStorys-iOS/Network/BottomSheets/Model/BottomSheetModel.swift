@@ -7,31 +7,31 @@
 
 import SwiftUI
 
-struct BottomSheetDetails: Codable {
+struct BottomSheetDetails: Codable , Sendable {
     let id: String
-    let campaign: String
     let name: String
     let elements: [Element]
-    let backgroundColor: String
-    let cornerRadius: String
-    let enableCrossButton: String
-    let triggerType: String
-    let selectedEvent: String
-    let type: String
-    let createdAt: String
+    let backgroundColor: String?
+    let cornerRadius: String?
+    let enableCrossButton: String?
+    let triggerType: String?
+    let selectedEvent: String?
+    let type: String?
+    let createdAt: String?
     
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case campaign, name, elements
+        case name, elements
         case backgroundColor, cornerRadius
         case enableCrossButton, triggerType, selectedEvent, type
         case createdAt = "created_at"
     }
 }
 
-struct Element: Codable, Identifiable {
+struct Element: Codable, Identifiable, Sendable {
     let type: ElementType
     let alignment: Alignment
+    let overlayButton : Bool?
     let order: Int
     let id: String
 
@@ -45,7 +45,7 @@ struct Element: Codable, Identifiable {
     let descriptionFontSize: AnyCodable?
     let titleLineHeight: Double?
     let descriptionLineHeight: Double?
-    let spacingBetweenTitleDesc: Int?
+    let spacingBetweenTitleDesc: String?
     let bodyBackgroundColor: String?
 
     let paddingLeft: AnyCodable
@@ -131,5 +131,5 @@ struct Element: Codable, Identifiable {
 struct FontStyle: Codable {
     let fontFamily: String
     let colour: String
-    let decoration: String
+    let decoration: [String]?
 }
