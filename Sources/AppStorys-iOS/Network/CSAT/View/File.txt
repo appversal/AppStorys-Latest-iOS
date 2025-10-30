@@ -1,1 +1,0 @@
-UserDefaults.standard.set(true, forKey: "CSATAlreadyShown")
