@@ -32,6 +32,9 @@ struct AppStorysOverlayModifier: ViewModifier {
     // ✅ NEW: Track which screen's campaigns are being displayed
     @State private var displayedScreenName: String?
     
+    // ✅ NEW: Simple tooltip delay
+    @State private var showTooltipAfterDelay = false
+    
     init(
         sdk: AppStorys,
         showBanner: Bool,
@@ -90,6 +93,16 @@ struct AppStorysOverlayModifier: ViewModifier {
         .onChange(of: sdk.activeBottomSheetCampaign) { oldValue, newValue in
             handleBottomSheetCampaignChange(from: oldValue, to: newValue)
         }
+        .onChange(of: tooltipManager.isPresenting) { oldValue, newValue in
+            if newValue {
+                Task {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    showTooltipAfterDelay = true
+                }
+            } else {
+                showTooltipAfterDelay = false
+            }
+        }
         .sheet(item: $presentedBottomSheetCampaign, onDismiss: handleSheetDismissal) { campaign in
             if case let .bottomSheet(details) = campaign.details {
                 BottomSheetView(
@@ -147,8 +160,8 @@ struct AppStorysOverlayModifier: ViewModifier {
             .zIndex(900)
         }
         
-        // ✅ Tooltip overlay
-        if showTooltip, tooltipManager.isPresenting {
+        // ✅ Tooltip overlay with delay
+        if showTooltip, tooltipManager.isPresenting, showTooltipAfterDelay {
             TooltipView(manager: tooltipManager)
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: tooltipManager.isPresenting)

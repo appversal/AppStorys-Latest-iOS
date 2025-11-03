@@ -2,7 +2,7 @@
 //  ScreenCaptureManager.swift
 //  AppStorys_iOS
 //
-//  ✅ REFACTORED: Uses ElementRegistry to eliminate duplicate view traversal
+//  ✅ FIXED: Element tagging is now OPTIONAL - screenshot always works
 //
 
 import UIKit
@@ -11,7 +11,7 @@ import UIKit
 actor ScreenCaptureManager {
     private let authManager: AuthManager
     private let baseURL: String
-    private let elementRegistry: ElementRegistry  // ✅ NEW: Inject registry
+    private let elementRegistry: ElementRegistry
     private var lastCaptureTime: Date?
     
     // Rate limiting: 5 seconds between captures
@@ -21,7 +21,6 @@ actor ScreenCaptureManager {
     private let maxRenderRetries = 10
     private let renderDelayMs: UInt64 = 50
     
-    // ✅ UPDATED: Accept ElementRegistry
     init(
         authManager: AuthManager,
         baseURL: String,
@@ -53,7 +52,7 @@ actor ScreenCaptureManager {
             waitForRenderCompletion(of: rootView)
         }
         
-        // Step 1: Capture screenshot (main thread)
+        // Step 1: Capture screenshot (REQUIRED - main thread)
         let screenshot = try await MainActor.run {
             try captureScreenshot(from: rootView)
         }
@@ -66,7 +65,7 @@ actor ScreenCaptureManager {
         
         Logger.debug("✅ Screenshot: \(imageData.count / 1024)KB")
         
-        // ✅ Step 2: Extract layout using ElementRegistry (NO DUPLICATION!)
+        // Step 2: Extract layout (OPTIONAL - best effort)
         let layoutInfo = await MainActor.run {
             // Discover elements (uses cache if available)
             _ = elementRegistry.discoverElements(in: rootView, forceRefresh: false)
@@ -75,23 +74,23 @@ actor ScreenCaptureManager {
             return elementRegistry.extractLayoutData()
         }
         
-        Logger.debug("✅ Layout: \(layoutInfo.count) elements")
-        
-        // Validate we have elements
-        guard !layoutInfo.isEmpty else {
-            Logger.warning("⚠️ No elements found - did you tag views with .captureTag()?")
-            throw ScreenCaptureError.screenshotFailed
+        // ✅ FIXED: Elements are optional, not required
+        if layoutInfo.isEmpty {
+            Logger.info("ℹ️ No tagged elements found (this is optional)")
+            Logger.debug("   💡 Add .captureAppStorysTag(\"id\") to views for element tracking")
+        } else {
+            Logger.debug("✅ Layout: \(layoutInfo.count) tagged elements")
         }
         
-        // Step 3: Upload
+        // Step 3: Upload (works with or without elements)
         try await uploadCapture(
             screenName: screenName,
             userId: userId,
             imageData: imageData,
-            layoutInfo: layoutInfo
+            layoutInfo: layoutInfo  // ✅ Can be empty array
         )
         
-        Logger.info("✅ Screen capture uploaded")
+        Logger.info("✅ Screen capture uploaded successfully")
     }
     
     // MARK: - Private Methods
@@ -165,7 +164,7 @@ actor ScreenCaptureManager {
         let randomSuffix = UUID().uuidString.prefix(6)
         let randomFileName = "screenshot_\(screenName)_\(timestamp)_\(randomSuffix).jpg"
         
-        // Add fields
+        // Add required fields
         body.append("--\(boundary)\r\n")
         body.append("Content-Disposition: form-data; name=\"screenName\"\r\n\r\n")
         body.append("\(screenName)\r\n")
@@ -174,7 +173,7 @@ actor ScreenCaptureManager {
         body.append("Content-Disposition: form-data; name=\"user_id\"\r\n\r\n")
         body.append("\(userId)\r\n")
         
-        // Add layout JSON
+        // ✅ Add layout JSON (even if empty array)
         let layoutJson = try JSONEncoder().encode(layoutInfo)
         body.append("--\(boundary)\r\n")
         body.append("Content-Disposition: form-data; name=\"children\"\r\n")
@@ -182,9 +181,9 @@ actor ScreenCaptureManager {
         body.append(layoutJson)
         body.append("\r\n")
         
-        // Upload as JPEG
+        // Add screenshot (JPEG)
         body.append("--\(boundary)\r\n")
-        body.append("Content-Disposition: form-data; name=\"screenshot\"; filename=\"\(randomFileName).jpg\"\r\n")
+        body.append("Content-Disposition: form-data; name=\"screenshot\"; filename=\"\(randomFileName)\"\r\n")
         body.append("Content-Type: image/jpeg\r\n\r\n")
         body.append(imageData)
         body.append("\r\n")
@@ -192,7 +191,10 @@ actor ScreenCaptureManager {
         
         request.httpBody = body
         
-        Logger.debug("📤 Uploading \(body.count / 1024)KB to \(url.absoluteString)")
+        Logger.debug("📤 Uploading to \(url.absoluteString)")
+        Logger.debug("   Screenshot: \(imageData.count / 1024)KB")
+        Logger.debug("   Elements: \(layoutInfo.count)")
+        Logger.debug("   Total size: \(body.count / 1024)KB")
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
@@ -210,11 +212,16 @@ actor ScreenCaptureManager {
             throw ScreenCaptureError.serverError(httpResponse.statusCode)
         }
         
-        Logger.info("✅ Upload successful")
+        // ✅ Log success with details
+        if let responseBody = String(data: data, encoding: .utf8) {
+            Logger.debug("✅ Server response: \(responseBody)")
+        }
+        
+        Logger.info("✅ Upload successful - Screen: \(screenName), Elements: \(layoutInfo.count)")
     }
 }
 
-// MARK: - Models (unchanged)
+// MARK: - Models
 
 public struct LayoutElement: Codable, Sendable {
     let id: String

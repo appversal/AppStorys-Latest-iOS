@@ -2,10 +2,7 @@
 //  ElementRegistry.swift
 //  AppStorys_iOS
 //
-//  Created by Ansh Kalra on 01/11/25.
-//
-//  Unified element discovery and position tracking
-//  Eliminates duplication between screen capture and tooltips
+//  ✅ ENHANCED: Now detects UITabBar items automatically
 //
 
 import UIKit
@@ -15,6 +12,7 @@ import SwiftUI
 /// - Eliminates duplicate view hierarchy traversals
 /// - Single source of truth for element positions
 /// - Shared by screen capture and tooltips
+/// - ✅ NEW: Auto-detects UITabBar items
 @MainActor
 public class ElementRegistry: ObservableObject {
     
@@ -65,6 +63,9 @@ public class ElementRegistry: ObservableObject {
         // ✅ SCAN PROVIDED VIEW FIRST
         scanView(rootView, into: &discovered, pixelRatio: pixelRatio)
         
+        // ✅ NEW: Auto-detect UITabBar items
+        detectTabBarItems(rootView: rootView, into: &discovered, pixelRatio: pixelRatio)
+        
         // ✅ FALLBACK: Scan all windows if nothing found
         if discovered.isEmpty {
             Logger.warning("⚠️ No elements found in rootView, scanning all windows...")
@@ -81,9 +82,12 @@ public class ElementRegistry: ObservableObject {
                 Logger.debug("   🪟 Scanning window: \(windowType)")
                 scanView(window, into: &discovered, pixelRatio: pixelRatio)
                 
+                // ✅ Also check for TabBar in this window
+                detectTabBarItems(rootView: window, into: &discovered, pixelRatio: pixelRatio)
+                
                 if !discovered.isEmpty {
                     Logger.info("   ✅ Found \(discovered.count) elements in \(windowType)")
-                    break // Stop after finding elements
+                    break
                 }
             }
         }
@@ -137,10 +141,88 @@ public class ElementRegistry: ObservableObject {
                     width: Int(frame.size.width * pixelRatio),
                     height: Int(frame.size.height * pixelRatio)
                 ),
-                type: "UIView", // Type info lost after scan, can enhance if needed
+                type: "UIView",
                 depth: 0
             )
         }
+    }
+    
+    // MARK: - ✅ NEW: UITabBar Detection
+    
+    /// Automatically detect and tag UITabBar items
+    private func detectTabBarItems(
+        rootView: UIView,
+        into discovered: inout [String: CGRect],
+        pixelRatio: CGFloat
+    ) {
+        // Find UITabBar in hierarchy
+        guard let tabBar = findTabBar(in: rootView) else {
+            return
+        }
+        
+        Logger.debug("📱 Found UITabBar, detecting items...")
+        
+        // Get tab bar's frame in window coordinates
+        guard let window = tabBar.window else {
+            Logger.warning("⚠️ TabBar not in window")
+            return
+        }
+        
+        let tabBarFrame = tabBar.convert(tabBar.bounds, to: window)
+        
+        // Tag the entire tab bar
+        discovered["tab_bar"] = tabBarFrame
+        Logger.info("   📍 FOUND [auto] tab_bar: \(tabBarFrame)")
+        
+        // ✅ Detect individual tab items
+        // UITabBar has subviews that are the actual buttons
+        for (index, subview) in tabBar.subviews.enumerated() {
+            let viewType = String(describing: type(of: subview))
+            
+            // UITabBarButton is private, so check by type name
+            if viewType.contains("Button") {
+                let itemFrame = subview.convert(subview.bounds, to: window)
+                
+                // Only add if frame is valid
+                if itemFrame.width > 0 && itemFrame.height > 0 {
+                    let itemId = "tab_item_\(index)"
+                    discovered[itemId] = itemFrame
+                    Logger.info("   📍 FOUND [auto] \(itemId): \(itemFrame)")
+                    
+                    // ✅ Try to get item title for better identification
+                    if let button = subview as? UIControl {
+                        // Try to find label within button
+                        for innerView in button.subviews {
+                            if let label = innerView as? UILabel,
+                               let text = label.text,
+                               !text.isEmpty {
+                                let labelId = "tab_\(text.lowercased().replacingOccurrences(of: " ", with: "_"))"
+                                discovered[labelId] = itemFrame
+                                Logger.info("   📍 FOUND [auto] \(labelId): \(itemFrame)")
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Find UITabBar in view hierarchy
+    private func findTabBar(in view: UIView) -> UITabBar? {
+        // Check if current view is a tab bar
+        if let tabBar = view as? UITabBar {
+            return tabBar
+        }
+        
+        // Recursively search subviews
+        for subview in view.subviews {
+            if let tabBar = findTabBar(in: subview) {
+                return tabBar
+            }
+        }
+        
+        return nil
     }
     
     // MARK: - Private Scanning Logic
@@ -152,38 +234,44 @@ public class ElementRegistry: ObservableObject {
         pixelRatio: CGFloat,
         depth: Int = 0
     ) {
-        // Skip hidden/zero-alpha views
-        guard !view.isHidden && view.alpha > 0 else { return }
-        
-        // ✅ ADD: Log view types being scanned (first 5 levels)
+        // Log view types (first 5 levels)
         if depth <= 5 {
             let viewType = String(describing: type(of: view))
             let identifier = view.accessibilityIdentifier ?? "nil"
             Logger.debug("      [\(depth)] \(viewType) - ID: \(identifier)")
         }
         
-        // Check for tag
-        if let identifier = view.accessibilityIdentifier,
+        // ✅ Check for tag (but don't return early if not visible)
+        var shouldProcessTag = !view.isHidden && view.alpha > 0
+        
+        if shouldProcessTag,
+           let identifier = view.accessibilityIdentifier,
            identifier.hasPrefix(capturePrefix) {
             
             let cleanId = String(identifier.dropFirst(capturePrefix.count))
             
             // Skip duplicates (keep first found)
-            guard discovered[cleanId] == nil else { return }
-            
-            // Get frame in screen coordinates
-            guard let window = view.window else {
-                Logger.warning("⚠️ View '\(cleanId)' not in window, skipping")
-                return
+            if discovered[cleanId] == nil {
+                // Get frame in screen coordinates
+                if let window = view.window {
+                    let frameInWindow = view.convert(view.bounds, to: window)
+                    
+                    // Only store if frame is valid
+                    if frameInWindow.width > 0 && frameInWindow.height > 0 {
+                        discovered[cleanId] = frameInWindow
+                        Logger.info("      📍 FOUND [\(depth)] \(cleanId): \(frameInWindow)")
+                    } else {
+                        Logger.warning("      ⚠️ Skipping '\(cleanId)' - zero size frame")
+                    }
+                } else {
+                    Logger.warning("      ⚠️ View '\(cleanId)' not in window, skipping")
+                }
+            } else {
+                Logger.debug("      🔁 Duplicate '\(cleanId)' skipped")
             }
-            
-            let frameInWindow = view.convert(view.bounds, to: window)
-            discovered[cleanId] = frameInWindow
-            
-            Logger.info("      📍 FOUND [\(depth)] \(cleanId): \(frameInWindow)")
         }
         
-        // Recurse
+        // ✅ CRITICAL: ALWAYS recurse into children
         for subview in view.subviews {
             scanView(subview, into: &discovered, pixelRatio: pixelRatio, depth: depth + 1)
         }
@@ -226,28 +314,22 @@ public class ElementRegistry: ObservableObject {
         
         Logger.info("⏳ Waiting for \(pendingIds.count) elements (timeout: \(timeout)s)...")
         
-        // ✅ Define timeout per element (used in logging)
-        let shortTimeout = min(timeout, 0.5)  // Max 500ms per element search in partial mode
+        let shortTimeout = min(timeout, 0.5)
         
-        // ✅ STEP 2: Smart search strategy based on requireAll flag
         if !requireAll {
-            // 🎯 PARTIAL MODE: Return as soon as we find ANY element
-            // BUT: Use SHORT individual timeouts to fail fast on missing elements
-            
             await withTaskGroup(of: (String, CGRect?).self) { group in
                 for id in pendingIds {
                     group.addTask {
                         let frame = await self.waitForElement(
                             id,
                             in: rootView,
-                            timeout: shortTimeout,  // ✅ Fail fast per element
+                            timeout: shortTimeout,
                             pollInterval: 0.05
                         )
                         return (id, frame)
                     }
                 }
                 
-                // Collect results as they come in
                 var foundAny = false
                 for await (id, frame) in group {
                     if let frame = frame {
@@ -258,13 +340,10 @@ public class ElementRegistry: ObservableObject {
                             Logger.info("⚡ First element '\(id)' found after \(String(format: "%.0f", elapsed))ms")
                         }
                     }
-                    // ✅ KEY: Don't cancel group - let all tasks complete their short timeout
-                    // This way we collect all available elements without wasting time on missing ones
                 }
             }
             
         } else {
-            // 🎯 COMPLETE MODE: Wait for ALL elements (or timeout)
             await withTaskGroup(of: (String, CGRect?).self) { group in
                 for id in pendingIds {
                     group.addTask {
@@ -304,13 +383,6 @@ public class ElementRegistry: ObservableObject {
     }
     
     /// Wait for a single element to appear in the view hierarchy
-    /// - Parameters:
-    ///   - id: Element ID to wait for
-    ///   - rootView: Root view to scan
-    ///   - timeout: Maximum time to wait
-    ///   - pollInterval: Initial time between scans
-    ///   - maxScans: Optional maximum number of scans (prevents infinite loops)
-    /// - Returns: Element frame if found, nil otherwise
     public func waitForElement(
         _ id: String,
         in rootView: UIView,
@@ -323,18 +395,15 @@ public class ElementRegistry: ObservableObject {
         var scanCount = 0
         var currentPollInterval = pollInterval
         
-        // ✅ Calculate max scans if not provided (based on timeout)
         let effectiveMaxScans = maxScans ?? Int(timeout / pollInterval) + 5
         
         while Date() < deadline && scanCount < effectiveMaxScans {
-            // Check cache first
             if let frame = elementFrames[id], frame.width > 0, frame.height > 0 {
                 let elapsed = Date().timeIntervalSince(startTime) * 1000
                 Logger.debug("✅ Element '\(id)' found after \(String(format: "%.0f", elapsed))ms (\(scanCount) scans)")
                 return frame
             }
             
-            // Scan hierarchy
             let _ = discoverElements(in: rootView, forceRefresh: true)
             scanCount += 1
             
@@ -344,16 +413,14 @@ public class ElementRegistry: ObservableObject {
                 return frame
             }
             
-            // ✅ Progressive backoff: Scan aggressively first, then slow down
             if scanCount <= 3 {
-                currentPollInterval = pollInterval  // Fast: 50ms
+                currentPollInterval = pollInterval
             } else if scanCount <= 10 {
-                currentPollInterval = pollInterval * 2  // Medium: 100ms
+                currentPollInterval = pollInterval * 2
             } else {
-                currentPollInterval = min(pollInterval * 4, 0.2)  // Slow: 200ms
+                currentPollInterval = min(pollInterval * 4, 0.2)
             }
             
-            // Wait before next poll
             try? await Task.sleep(nanoseconds: UInt64(currentPollInterval * 1_000_000_000))
         }
         
@@ -372,7 +439,6 @@ public class ElementRegistry: ObservableObject {
 extension ElementRegistry {
     
     /// Observe layout changes and auto-invalidate cache
-    /// Call this from your view lifecycle
     public func observeLayoutChanges(in view: UIView) {
         NotificationCenter.default.addObserver(
             forName: UIDevice.orientationDidChangeNotification,

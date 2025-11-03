@@ -69,7 +69,6 @@ struct SpotlightOverlay: View {
                     spotlightGlow
                 }
             }
-            .compositingGroup() // ✅ CRITICAL: Apply blend mode to entire layer
             .ignoresSafeArea()
             .animation(.easeInOut(duration: animationDuration), value: isVisible)
         }
