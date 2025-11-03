@@ -2,7 +2,7 @@
 //  AppStorysPIPView.swift
 //  AppStorys_iOS
 //
-//  UPDATED - Fixed dismissal bug and cleanup lifecycle
+//  UPDATED - Simplified mute state with isInitial flag
 //
 
 import SwiftUI
@@ -20,6 +20,12 @@ public struct AppStorysPIPView: View {
     @State private var isVisible = true
     @State private var isMuted = true
     
+    // ✅ Simple flag: true = auto behavior, false = user controls
+    @State private var isInitial = true
+    
+    // ✅ Observer for volume button changes
+    @State private var muteObserver: NSKeyValueObservation?
+    
     // Position state
     @State private var position: CGPoint = .zero
     @State private var isDragging = false
@@ -30,26 +36,29 @@ public struct AppStorysPIPView: View {
     // Track if position has been initialized
     @State private var isPositionInitialized = false
     
-    // ✅ NEW: Track dismissal reason to prevent duplicate cleanup
+    // Track dismissal reason to prevent duplicate cleanup
     @State private var dismissalReason: DismissalReason?
     
     // Lifecycle monitoring
     @Environment(\.scenePhase) private var scenePhase
     @State private var isViewActive = true
     
-    // ✅ NEW: Track if cleanup already happened
+    // Track if cleanup already happened
     @State private var hasCleanedUp = false
     
     @State private var currentScale: CGFloat = 1.0
+    
+    // Expanded view drag state
+    @State private var expandedDragOffset: CGFloat = 0
 
     // MARK: - Configuration
     private let padding: CGFloat = 8
     
-    // ✅ NEW: Dismissal reason enum
+    // Dismissal reason enum
     enum DismissalReason {
-        case userDismissed    // User tapped X button
-        case navigation       // User navigated away
-        case appBackgrounded  // App went to background
+        case userDismissed
+        case navigation
+        case appBackgrounded
     }
     
     // MARK: - Computed Properties
@@ -59,6 +68,11 @@ public struct AppStorysPIPView: View {
     
     private var videoHeight: CGFloat {
         CGFloat(pipDetails?.height ?? 200)
+    }
+    
+    // Calculate opacity based on drag offset (for expanded view)
+    private var expandedDragOpacity: CGFloat {
+        1.0 - min(abs(expandedDragOffset) / 500, 1.0)
     }
     
     private var pipDetails: PipDetails? {
@@ -93,7 +107,7 @@ public struct AppStorysPIPView: View {
                 if isVisible, let campaign = campaign, let details = pipDetails {
                     // Black background for expanded state
                     Color.black
-                        .opacity(isExpanded ? 1 : 0)
+                        .opacity(isExpanded ? expandedDragOpacity : 0)
                         .ignoresSafeArea()
                         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isExpanded)
                     
@@ -137,12 +151,14 @@ public struct AppStorysPIPView: View {
                     }
                     .position(
                         isExpanded
-                            ? CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                            ? CGPoint(x: geometry.size.width / 2, y: (geometry.size.height / 2) + expandedDragOffset)
                             : calculateCurrentPosition(geometry: geometry)
                     )
+                    .opacity(isExpanded ? expandedDragOpacity : 1.0)
                     .matchedGeometryEffect(id: "pipVideo", in: namespace)
                     .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isExpanded)
-                    .gesture(isExpanded ? nil : dragGesture(geometry))
+                    .simultaneousGesture(isExpanded ? nil : dragGesture(geometry))
+                    .simultaneousGesture(isExpanded ? expandedDragGesture(campaign: campaign) : nil)
                     .onTapGesture {
                         if !isExpanded && !isDragging {
                             handleExpand()
@@ -159,7 +175,7 @@ public struct AppStorysPIPView: View {
                     isPositionInitialized = true
                 }
                 isViewActive = true
-                hasCleanedUp = false // ✅ Reset cleanup flag
+                hasCleanedUp = false
                 Logger.debug("👀 PiP view appeared")
             }
             .onDisappear {
@@ -167,6 +183,13 @@ public struct AppStorysPIPView: View {
             }
             .onChange(of: scenePhase) { oldPhase, newPhase in
                 handleScenePhaseChange(from: oldPhase, to: newPhase)
+            }
+            // ✅ Monitor player mute state to sync with volume buttons
+            .onChange(of: playerManager.player.isMuted) { oldValue, newValue in
+                // Only sync if we're past initial state
+                if !isInitial {
+                    isMuted = newValue
+                }
             }
         }
     }
@@ -194,7 +217,30 @@ public struct AppStorysPIPView: View {
             }
     }
     
-
+    // Drag gesture for expanded view (minimize on vertical drag down)
+    private func expandedDragGesture(campaign: CampaignModel) -> some Gesture {
+        DragGesture(minimumDistance: 30)
+            .onChanged { value in
+                guard value.translation.height > 0 else { return }
+                guard abs(value.translation.height) > abs(value.translation.width) * 1.5 else { return }
+                
+                playerManager.pause()
+                expandedDragOffset = value.translation.height
+            }
+            .onEnded { value in
+                if expandedDragOffset > 150 {
+                    handleMinimize()
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                } else {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                        expandedDragOffset = 0
+                    }
+                }
+                
+                playerManager.play()
+            }
+    }
+    
     // MARK: - Calculate Position
     private func calculateCurrentPosition(geometry: GeometryProxy) -> CGPoint {
         let currentX = position.x + dragState.width
@@ -225,9 +271,7 @@ public struct AppStorysPIPView: View {
         VStack(spacing: 0) {
             HStack(spacing: 16) {
                 Button(action: {
-                    isMuted.toggle()
-                    playerManager.player.isMuted = isMuted
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    handleMuteToggle()
                 }) {
                     Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .font(.title3)
@@ -292,9 +336,7 @@ public struct AppStorysPIPView: View {
         VStack {
             HStack(spacing: 8) {
                 Button(action: {
-                    isMuted.toggle()
-                    playerManager.player.isMuted = isMuted
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    handleMuteToggle()
                 }) {
                     Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .font(.system(size: 12))
@@ -376,11 +418,9 @@ public struct AppStorysPIPView: View {
         let topEdge = videoHeight / 2 + safeArea.top + padding
         let bottomEdge = geometry.size.height - videoHeight / 2 - safeArea.bottom - padding
         
-        // Determine which side is closer (or faster swipe)
         let finalX: CGFloat
         let finalY: CGFloat
         
-        // Horizontal side snapping
         if abs(velocity.width) > 200 {
             finalX = velocity.width > 0 ? rightEdge : leftEdge
         } else {
@@ -388,7 +428,6 @@ public struct AppStorysPIPView: View {
             ? leftEdge : rightEdge
         }
         
-        // Vertical snapping (top or bottom)
         if abs(velocity.height) > 200 {
             finalY = velocity.height > 0 ? bottomEdge : topEdge
         } else {
@@ -396,16 +435,12 @@ public struct AppStorysPIPView: View {
             ? topEdge : bottomEdge
         }
         
-        // Return the nearest corner position
         return CGPoint(x: finalX, y: finalY)
     }
-
     
     // MARK: - Lifecycle Handlers
     
-    /// ✅ UPDATED: Prevent duplicate cleanup
     private func handleViewDisappear() {
-        // Prevent duplicate cleanup
         guard !hasCleanedUp else {
             Logger.debug("⏭️ Already cleaned up, skipping")
             return
@@ -416,13 +451,9 @@ public struct AppStorysPIPView: View {
         hasCleanedUp = true
         isViewActive = false
         
-        // Cleanup player
         playerManager.cleanup()
-        
-        // Hide PiP in SDK
         sdk.hidePIPCampaign()
         
-        // ✅ Only track dismissed if not explicitly dismissed by user
         if let campaign = campaign, dismissalReason == nil {
             dismissalReason = .navigation
             
@@ -444,7 +475,6 @@ public struct AppStorysPIPView: View {
             Logger.debug("⏸️ App backgrounded - pausing PiP")
             playerManager.pause()
             
-            // Mark as backgrounded dismissal if not already dismissed
             if dismissalReason == nil {
                 dismissalReason = .appBackgrounded
             }
@@ -470,12 +500,24 @@ public struct AppStorysPIPView: View {
         playerManager.updateVideoURL(videoURL)
         playerManager.play()
         
-        // Initialize mute state
-        isMuted = playerManager.player.isMuted
+        // ✅ Always start muted in small PiP
+        isMuted = true
+        playerManager.player.isMuted = true
+        isInitial = true
         
         Task {
             await sdk.trackEvents(eventType: "viewed", campaignId: campaign.id)
         }
+    }
+    
+    // ✅ User tapped mute button - disable auto behavior
+    private func handleMuteToggle() {
+        isInitial = false
+        isMuted.toggle()
+        playerManager.player.isMuted = isMuted
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        
+        Logger.debug("🔊 User toggled mute: \(isMuted ? "muted" : "unmuted")")
     }
     
     private func handleExpand() {
@@ -488,57 +530,58 @@ public struct AppStorysPIPView: View {
             playerManager.play()
         }
         
+        // ✅ Only auto-unmute if still in initial state
+        if isInitial {
+            isInitial = false
+            isMuted = false
+            playerManager.player.isMuted = false
+            Logger.debug("🔊 Auto-unmuted on first expand")
+        } else {
+            // Keep current state
+            playerManager.player.isMuted = isMuted
+            Logger.debug("🔊 Maintaining user preference: \(isMuted ? "muted" : "unmuted")")
+        }
+
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
     
     private func handleMinimize() {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             isExpanded = false
+            expandedDragOffset = 0
         }
         
         if !useSameVideo, let smallVideo = pipDetails?.smallVideo {
             playerManager.updateVideoURL(smallVideo)
             playerManager.play()
         }
+        
+        // ✅ Always maintain current mute state
+        playerManager.player.isMuted = isMuted
     }
     
-    /// ✅ UPDATED: Proper dismissal handling
     private func handleClose(campaign: CampaignModel) {
-        // Prevent multiple dismissals
         guard dismissalReason == nil else {
             Logger.debug("⏭️ Already dismissed, ignoring")
             return
         }
-        
+
         Logger.debug("❌ User dismissed PiP")
         dismissalReason = .userDismissed
-        
-        // Hide with animation
+
         withAnimation {
             isVisible = false
         }
-        
-        // ✅ Mark as dismissed in SDK (prevents reappearing)
+
         sdk.dismissCampaign(campaign.id)
-        
-        // Track both events
-        Task {
-            // Track the close action
+
+        Task.detached {
             await sdk.trackEvents(
                 eventType: "clicked",
                 campaignId: campaign.id,
                 metadata: ["action": "close"]
             )
-            
-            // Track dismissed event
-            await sdk.trackEvents(
-                eventType: "dismissed",
-                campaignId: campaign.id,
-                metadata: ["reason": "user_action"]
-            )
         }
-        
-        // Cleanup will happen in onDisappear
     }
     
     private func handleCTATap(campaign: CampaignModel, link: String) {

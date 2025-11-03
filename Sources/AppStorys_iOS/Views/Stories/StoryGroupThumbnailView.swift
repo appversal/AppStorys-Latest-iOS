@@ -10,7 +10,7 @@ import Kingfisher
 
 /// Horizontal scrollable view showing story group thumbnails
 /// Stories are sorted: unviewed first, viewed last
-public struct StoryGroupThumbnailView: View {
+struct StoryGroupThumbnailView: View {
     @ObservedObject var manager: StoryManager
     let campaigns: [StoryCampaign]
     let onTap: (StoryCampaign, Int) -> Void

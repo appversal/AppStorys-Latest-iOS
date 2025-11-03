@@ -6,13 +6,6 @@
 //
 
 
-//
-//  CaptureContext.swift
-//  AppStorys_iOS
-//
-//  Captures the actual current view, not root window
-//
-
 import SwiftUI
 import UIKit
 
@@ -33,7 +26,7 @@ class CaptureContextProvider: ObservableObject {
 
 extension View {
     /// Makes this view capturable by providing its UIView to the SDK
-    /// 
+    ///
     /// Usage:
     /// ```swift
     /// var body: some View {
@@ -77,7 +70,7 @@ private class CaptureContextUIView: UIView {
             // Check if this is a hosting view (contains actual content)
             let viewType = String(describing: type(of: view))
             
-            if viewType.contains("HostingView") || 
+            if viewType.contains("HostingView") ||
                viewType.contains("UIHostingController") {
                 Logger.debug("✅ Found hosting view: \(viewType)")
                 return view

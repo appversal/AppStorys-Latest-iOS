@@ -34,7 +34,7 @@ extension View {
     /// Text("Hello")
     ///     .captureTag("hello_text")
     /// ```
-    public func captureTag(_ identifier: String) -> some View {
+    public func captureAppStorysTag(_ identifier: String) -> some View {
         let prefixedId = "APPSTORYS_\(identifier)"
         return self.background(
             CaptureTagBridge(identifier: prefixedId)

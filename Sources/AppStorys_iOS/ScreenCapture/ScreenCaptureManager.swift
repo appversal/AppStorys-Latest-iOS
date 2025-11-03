@@ -2,7 +2,7 @@
 //  ScreenCaptureManager.swift
 //  AppStorys_iOS
 //
-//  Enhanced with render waiting and JPEG compression
+//  ✅ REFACTORED: Uses ElementRegistry to eliminate duplicate view traversal
 //
 
 import UIKit
@@ -11,18 +11,25 @@ import UIKit
 actor ScreenCaptureManager {
     private let authManager: AuthManager
     private let baseURL: String
+    private let elementRegistry: ElementRegistry  // ✅ NEW: Inject registry
     private var lastCaptureTime: Date?
     
     // Rate limiting: 5 seconds between captures
     private let minimumCaptureInterval: TimeInterval = 5.0
     
-    // ✅ NEW: Render waiting configuration (Flutter pattern)
+    // Render waiting configuration
     private let maxRenderRetries = 10
     private let renderDelayMs: UInt64 = 50
     
-    init(authManager: AuthManager, baseURL: String) {
+    // ✅ UPDATED: Accept ElementRegistry
+    init(
+        authManager: AuthManager,
+        baseURL: String,
+        elementRegistry: ElementRegistry
+    ) {
         self.authManager = authManager
         self.baseURL = baseURL
+        self.elementRegistry = elementRegistry
     }
     
     /// Capture screen and upload to backend
@@ -31,7 +38,7 @@ actor ScreenCaptureManager {
         userId: String,
         rootView: UIView
     ) async throws {
-        // ✅ Rate limit check
+        // Rate limit check
         if let lastCapture = lastCaptureTime,
            Date().timeIntervalSince(lastCapture) < minimumCaptureInterval {
             Logger.warning("⏳ Rate limited: Please wait \(Int(minimumCaptureInterval))s between captures")
@@ -41,7 +48,7 @@ actor ScreenCaptureManager {
         lastCaptureTime = Date()
         Logger.info("📸 Starting screen capture for: \(screenName)")
         
-        // ✅ NEW: Wait for render completion before capturing
+        // Wait for render completion before capturing
         await MainActor.run {
             waitForRenderCompletion(of: rootView)
         }
@@ -51,7 +58,7 @@ actor ScreenCaptureManager {
             try captureScreenshot(from: rootView)
         }
         
-        // ✅ CHANGED: Use JPEG instead of PNG (3-5x smaller)
+        // Use JPEG compression (3-5x smaller than PNG)
         guard let imageData = screenshot.jpegData(compressionQuality: 0.8) else {
             Logger.error("❌ Failed to compress screenshot to JPEG")
             throw ScreenCaptureError.screenshotFailed
@@ -59,16 +66,20 @@ actor ScreenCaptureManager {
         
         Logger.debug("✅ Screenshot: \(imageData.count / 1024)KB")
         
-        // Step 2: Extract layout (main thread)
+        // ✅ Step 2: Extract layout using ElementRegistry (NO DUPLICATION!)
         let layoutInfo = await MainActor.run {
-            extractLayoutInfo(from: rootView)
+            // Discover elements (uses cache if available)
+            _ = elementRegistry.discoverElements(in: rootView, forceRefresh: false)
+            
+            // Extract in backend-compatible format
+            return elementRegistry.extractLayoutData()
         }
         
         Logger.debug("✅ Layout: \(layoutInfo.count) elements")
         
-        // ✅ Validate we have elements
+        // Validate we have elements
         guard !layoutInfo.isEmpty else {
-            Logger.warning("⚠️ No elements found - did you tag views with accessibilityIdentifier?")
+            Logger.warning("⚠️ No elements found - did you tag views with .captureTag()?")
             throw ScreenCaptureError.screenshotFailed
         }
         
@@ -85,18 +96,15 @@ actor ScreenCaptureManager {
     
     // MARK: - Private Methods
     
-    /// ✅ NEW: Wait for view hierarchy to finish rendering (Flutter pattern)
+    /// Wait for view hierarchy to finish rendering
     @MainActor
     private func waitForRenderCompletion(of view: UIView) {
         var retries = 0
         
         while retries < maxRenderRetries {
-            // Force layout if needed
             if view.layer.needsLayout() {
                 Logger.debug("⏳ Waiting for render (\(retries + 1)/\(maxRenderRetries))...")
                 view.layoutIfNeeded()
-                
-                // Small delay to let render complete
                 Thread.sleep(forTimeInterval: Double(renderDelayMs) / 1000.0)
                 retries += 1
             } else {
@@ -118,7 +126,7 @@ actor ScreenCaptureManager {
             }
         }
         
-        // ✅ Validate image size and throw if invalid
+        // Validate image size
         guard image.size.width > 0 && image.size.height > 0 else {
             Logger.error("❌ Captured image has zero size")
             throw ScreenCaptureError.screenshotFailed
@@ -127,63 +135,13 @@ actor ScreenCaptureManager {
         return image
     }
     
-    @MainActor
-    private func extractLayoutInfo(from rootView: UIView) -> [LayoutElement] {
-        var elements: [LayoutElement] = []
-        var seenIds = Set<String>()
-        let pixelRatio = UIScreen.main.scale
-        
-        // ✅ FIX: Define prefix as local constant
-        let capturePrefix = "APPSTORYS_"
-        
-        func traverse(view: UIView, depth: Int = 0) {
-            guard !view.isHidden && view.alpha > 0 else { return }
-            
-            if let identifier = view.accessibilityIdentifier,
-               !identifier.isEmpty,
-               identifier.hasPrefix(capturePrefix) {
-                
-                let cleanId = String(identifier.dropFirst(capturePrefix.count))
-                
-                guard !seenIds.contains(cleanId) else {
-                    return
-                }
-                
-                seenIds.insert(cleanId)
-                
-                let frame = view.convert(view.bounds, to: rootView)
-                
-                elements.append(LayoutElement(
-                    id: cleanId,
-                    frame: LayoutFrame(
-                        x: Int(frame.origin.x * pixelRatio),
-                        y: Int(frame.origin.y * pixelRatio),
-                        width: Int(frame.size.width * pixelRatio),
-                        height: Int(frame.size.height * pixelRatio)
-                    ),
-                    type: String(describing: type(of: view)),
-                    depth: depth
-                ))
-                
-                Logger.debug("  📍 \(cleanId): \(frame)")
-            }
-            
-            for subview in view.subviews {
-                traverse(view: subview, depth: depth + 1)
-            }
-        }
-        
-        traverse(view: rootView)
-        return elements
-    }
-    
     private func uploadCapture(
         screenName: String,
         userId: String,
         imageData: Data,
         layoutInfo: [LayoutElement]
     ) async throws {
-        // ✅ Use backend URL (not users URL)
+        // Use backend URL (not users URL)
         let endpoint = "\(baseURL.replacingOccurrences(of: "users", with: "backend"))/api/v2/appinfo/identify-elements/"
         
         guard let url = URL(string: endpoint) else {
@@ -224,7 +182,7 @@ actor ScreenCaptureManager {
         body.append(layoutJson)
         body.append("\r\n")
         
-        // ✅ CHANGED: Upload as JPEG, not PNG
+        // Upload as JPEG
         body.append("--\(boundary)\r\n")
         body.append("Content-Disposition: form-data; name=\"screenshot\"; filename=\"\(randomFileName).jpg\"\r\n")
         body.append("Content-Type: image/jpeg\r\n\r\n")
@@ -256,9 +214,9 @@ actor ScreenCaptureManager {
     }
 }
 
-// MARK: - Models
+// MARK: - Models (unchanged)
 
-struct LayoutElement: Codable {
+public struct LayoutElement: Codable, Sendable {
     let id: String
     let frame: LayoutFrame
     let type: String?
