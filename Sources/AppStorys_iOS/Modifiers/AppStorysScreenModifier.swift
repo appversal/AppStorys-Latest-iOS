@@ -2,53 +2,46 @@
 //  AppStorysScreenModifier.swift
 //  AppStorys_iOS
 //
-//  Created by Ansh Kalra on 17/10/25.
-//
-
-
-//
-//  AppStorysScreenModifier.swift
-//  AppStorys_iOS
-//
-//  Automatic screen tracking and cleanup
+//  ✅ FIXED: Screen-aware dismissal to prevent race conditions
 //
 
 import SwiftUI
-
-// MARK: - Screen Lifecycle Modifier
 
 struct AppStorysScreenModifier: ViewModifier {
     let screenName: String
     let onCampaignsLoaded: ([CampaignModel]) -> Void
     
     @StateObject private var sdk = AppStorys.shared
+    @Environment(\.scenePhase) private var scenePhase
     
     func body(content: Content) -> some View {
         content
-            .captureContext()  // ✅ Auto-add capture context
+            .captureContext()
             .onAppear {
-                print("📺 Screen appeared: \(screenName)")
+                Logger.debug("📺 Screen appeared: \(screenName)")
                 sdk.trackScreen(screenName, completion: onCampaignsLoaded)
             }
             .onDisappear {
-                print("👋 Screen disappeared: \(screenName)")
-                sdk.hideAllCampaigns()
+                Logger.debug("👋 Screen disappeared: \(screenName)")
+                
+                // ✅ CRITICAL FIX: Use screen-aware dismissal
+                if scenePhase == .active {
+                    Logger.info("💤 Screen inactive - checking if campaigns should hide")
+                    
+                    // Only hide campaigns if this screen is STILL the current screen
+                    // This prevents stale .onDisappear from killing new screen's campaigns
+                    sdk.handleScreenDisappeared(screenName)
+                    
+                    // Mark as inactive but keep cache for back navigation
+                    sdk.campaignRepository.markScreenInactive(screenName)
+                } else {
+                    Logger.info("🌙 App backgrounded - preserving everything")
+                }
             }
     }
 }
 
-// MARK: - View Extension
-
 extension View {
-    /// Track this screen with AppStorys and automatically handle lifecycle
-    ///
-    /// Usage:
-    /// ```swift
-    /// var body: some View {
-    ///     YourContent()
-    ///         .trackAppStorysScreen("Home Screen")
-    /// }
-    /// ```
     public func trackAppStorysScreen(
         _ screenName: String,
         onCampaignsLoaded: @escaping ([CampaignModel]) -> Void = { _ in }

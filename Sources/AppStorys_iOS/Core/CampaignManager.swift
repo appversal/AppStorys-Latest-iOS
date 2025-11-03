@@ -2,7 +2,7 @@
 //  CampaignManager.swift
 //  AppStorys_iOS
 //
-//  Fixed: Explicit WebSocket cleanup before new connections
+//  Fixed: Returns tuple with screenCaptureEnabled
 //
 
 import Foundation
@@ -32,31 +32,13 @@ actor CampaignManager {
         self.baseURL = baseURL
     }
     
-    // ✅ Get capture state immediately (separate from campaigns)
-    func getScreenCaptureState(
-        screenName: String,
-        userID: String,
-        attributes: [String: AnyCodable]
-    ) async throws -> Bool {
-        let wsResponse = try await fetchWebSocketConfig(
-            screenName: screenName,
-            userID: userID,
-            attributes: attributes
-        )
-        
-        currentScreenCaptureEnabled = wsResponse.screenCaptureEnabled ?? false
-        Logger.info("📸 Screen capture: \(currentScreenCaptureEnabled ? "ENABLED" : "disabled")")
-        
-        return currentScreenCaptureEnabled
-    }
-    
-    // ✅ FIXED: Rate limiting + explicit WebSocket cleanup
+    // ✅ FIXED: Now returns tuple with screenCaptureEnabled
     func trackScreen(
         screenName: String,
         userID: String,
         attributes: [String: AnyCodable],
         timeout: TimeInterval = 10.0
-    ) async throws -> [CampaignModel] {
+    ) async throws -> (campaigns: [CampaignModel], screenCaptureEnabled: Bool) {
         // ✅ Rate limit check
         if let lastCall = lastTrackScreenTime,
            Date().timeIntervalSince(lastCall) < trackScreenDebounceInterval {
@@ -82,11 +64,14 @@ actor CampaignManager {
         
         currentScreenCaptureEnabled = wsResponse.screenCaptureEnabled ?? false
         
-        return try await connectAndReceiveCampaigns(
+        let campaigns = try await connectAndReceiveCampaigns(
             config: wsResponse.ws,
             screenName: screenName,
             timeout: timeout
         )
+        
+        // ✅ Return tuple with both campaigns and capture state
+        return (campaigns: campaigns, screenCaptureEnabled: currentScreenCaptureEnabled)
     }
     
     private func fetchWebSocketConfig(
@@ -121,9 +106,6 @@ actor CampaignManager {
         
         return wsResponse
     }
-    
-    // Rest of the implementation stays the same...
-    // (connectAndReceiveCampaigns, handleWebSocketMessage, etc.)
     
     private func connectAndReceiveCampaigns(
         config: WebSocketConfig,
@@ -320,6 +302,8 @@ actor CampaignManager {
         Logger.info("✅ Event tracked: \(event)")
     }
 }
+
+// MARK: - SafeContinuationWrapper
 
 final class SafeContinuationWrapper<T: Sendable>: @unchecked Sendable {
     private let continuation: CheckedContinuation<T, Never>

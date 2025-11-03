@@ -2,6 +2,7 @@
 //  StoryManager.swift
 //  AppStorys_iOS
 //
+//  ✅ FIXED: Added isDismissing as @Published property
 //  Updated: Integrated caching and prefetching
 //
 
@@ -19,6 +20,7 @@ public class StoryManager: ObservableObject {
     @Published var activeCampaign: StoryCampaign?
     @Published var currentGroupIndex: Int = 0
     @Published var isPaused: Bool = false
+    @Published var isDismissing: Bool = false  // ✅ NEW: Track dismissal state
     
     // MARK: - Private Properties
     
@@ -83,6 +85,7 @@ public class StoryManager: ObservableObject {
         self.activeCampaign = campaign
         self.currentGroupIndex = initialGroupIndex
         self.isPaused = false
+        self.isDismissing = false  // ✅ Reset dismissing state
         
         Logger.info("📖 Opening story campaign: \(campaign.id) at group \(initialGroupIndex)")
         
@@ -102,6 +105,13 @@ public class StoryManager: ObservableObject {
     }
     
     public func closeStory() {
+        guard !isDismissing else {
+            Logger.debug("⏭️ Already dismissing, ignoring duplicate close")
+            return
+        }
+        
+        isDismissing = true  // ✅ Set dismissing flag FIRST
+        
         if let campaign = activeCampaign {
             Logger.info("📕 Closing story campaign: \(campaign.id)")
             
@@ -110,9 +120,19 @@ public class StoryManager: ObservableObject {
             }
         }
         
-        self.activeCampaign = nil
-        self.currentGroupIndex = 0
-        self.isPaused = false
+        // ✅ Small delay to allow views to stop timers
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self = self else { return }
+            
+            self.activeCampaign = nil
+            self.currentGroupIndex = 0
+            self.isPaused = false
+            
+            // Reset dismissing flag after cleanup
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.isDismissing = false
+            }
+        }
     }
     
     // ✅ NEW: Prefetch entire campaign

@@ -2,18 +2,20 @@
 //  StoryVideoPlayer.swift
 //  AppStorys_iOS
 //
-//  Fixed: Added mute parameter + improved video reset logic
+//  ✅ FIXED: Detect and report actual video duration
+//  ✅ FIXED: Improved video reset logic
 //
 
 import SwiftUI
 import AVKit
 import Combine
 
-/// Video player for story slides with pause/reset/mute support
+/// Video player for story slides with pause/reset/mute support and duration detection
 struct StoryVideoPlayer: UIViewControllerRepresentable {
     let url: URL
     let onReady: () -> Void
     let onEnd: () -> Void
+    let onDurationAvailable: (TimeInterval) -> Void  // ✅ NEW
     let isActive: Bool
     let isPaused: Bool
     let isMuted: Bool
@@ -38,7 +40,7 @@ struct StoryVideoPlayer: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
         guard let player = uiViewController.player else { return }
         
-        // ✅ Update mute state
+        // Update mute state
         if player.isMuted != isMuted {
             player.isMuted = isMuted
             Logger.debug("🔊 Video mute: \(isMuted)")
@@ -49,7 +51,7 @@ struct StoryVideoPlayer: UIViewControllerRepresentable {
         let isNowActive = isActive
         
         if wasInactive && isNowActive {
-            // ✅ Reset video to beginning when returning to this story
+            // Reset video to beginning when returning to this story
             player.seek(to: .zero)
             Logger.debug("🔄 Video reset to beginning")
         }
@@ -66,7 +68,11 @@ struct StoryVideoPlayer: UIViewControllerRepresentable {
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(onReady: onReady, onEnd: onEnd)
+        Coordinator(
+            onReady: onReady,
+            onEnd: onEnd,
+            onDurationAvailable: onDurationAvailable
+        )
     }
     
     static func dismantleUIViewController(_ uiViewController: AVPlayerViewController, coordinator: Coordinator) {
@@ -77,15 +83,24 @@ struct StoryVideoPlayer: UIViewControllerRepresentable {
     class Coordinator: NSObject {
         let onReady: () -> Void
         let onEnd: () -> Void
+        let onDurationAvailable: (TimeInterval) -> Void  // ✅ NEW
+        
         var isReadyToPlay = false
+        var hasDurationBeenReported = false  // ✅ NEW: Prevent duplicate reports
         var player: AVPlayer?
-        var wasActive = true  // ✅ Track previous active state
+        var wasActive = true
+        
         private var observations: [NSKeyValueObservation] = []
         private var notificationToken: NSObjectProtocol?
         
-        init(onReady: @escaping () -> Void, onEnd: @escaping () -> Void) {
+        init(
+            onReady: @escaping () -> Void,
+            onEnd: @escaping () -> Void,
+            onDurationAvailable: @escaping (TimeInterval) -> Void
+        ) {
             self.onReady = onReady
             self.onEnd = onEnd
+            self.onDurationAvailable = onDurationAvailable
         }
         
         func updatePlaybackState(isActive: Bool, isPaused: Bool, player: AVPlayer) {
@@ -111,11 +126,31 @@ struct StoryVideoPlayer: UIViewControllerRepresentable {
                     DispatchQueue.main.async {
                         self.onReady()
                     }
+                    
+                    // ✅ NEW: Report video duration when ready
+                    self.reportVideoDuration(player: player)
+                    
                 } else if player.status == .failed {
                     Logger.error("❌ Video player failed to load")
                 }
             }
             observations.append(statusObservation)
+            
+            // ✅ NEW: Observe duration changes (for progressive loading)
+            if let currentItem = player.currentItem {
+                let durationObservation = currentItem.observe(
+                    \.duration,
+                    options: [.new]
+                ) { [weak self] item, _ in
+                    guard let self = self else { return }
+                    
+                    let duration = item.duration
+                    if duration.isNumeric && !duration.isIndefinite {
+                        self.reportVideoDuration(player: player)
+                    }
+                }
+                observations.append(durationObservation)
+            }
             
             // Observe end of video
             notificationToken = NotificationCenter.default.addObserver(
@@ -124,6 +159,35 @@ struct StoryVideoPlayer: UIViewControllerRepresentable {
                 queue: .main
             ) { [weak self] _ in
                 self?.onEnd()
+            }
+        }
+        
+        /// ✅ NEW: Extract and report video duration
+        private func reportVideoDuration(player: AVPlayer) {
+            guard !hasDurationBeenReported else { return }
+            guard let currentItem = player.currentItem else { return }
+            
+            let duration = currentItem.duration
+            
+            // Validate duration is available and numeric
+            guard duration.isNumeric && !duration.isIndefinite else {
+                Logger.debug("⏳ Video duration not yet available")
+                return
+            }
+            
+            let durationInSeconds = CMTimeGetSeconds(duration)
+            
+            // Sanity check: duration should be between 0.1s and 10 minutes
+            guard durationInSeconds > 0.1 && durationInSeconds < 600 else {
+                Logger.warning("⚠️ Invalid video duration: \(durationInSeconds)s")
+                return
+            }
+            
+            hasDurationBeenReported = true
+            
+            DispatchQueue.main.async { [weak self] in
+                self?.onDurationAvailable(durationInSeconds)
+                Logger.info("📹 Video duration detected: \(String(format: "%.2f", durationInSeconds))s")
             }
         }
         
@@ -139,7 +203,8 @@ struct StoryVideoPlayer: UIViewControllerRepresentable {
             player?.pause()
             player = nil
             isReadyToPlay = false
-            wasActive = true  // Reset tracking
+            hasDurationBeenReported = false
+            wasActive = true
         }
         
         deinit {

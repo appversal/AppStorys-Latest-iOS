@@ -2,7 +2,7 @@
 //  StoryMediaView.swift
 //  AppStorys_iOS
 //
-//  ✅ FIXED: Prevent excessive view recreation
+//  ✅ FIXED: Pass video duration to parent for dynamic timing
 //
 
 import SwiftUI
@@ -13,6 +13,7 @@ struct StoryMediaView: View {
     let slide: StorySlide
     let onReady: () -> Void
     let onVideoEnd: () -> Void
+    let onVideoDurationAvailable: (TimeInterval) -> Void  // ✅ NEW
     let isActive: Bool
     let isPaused: Bool
     let isMuted: Bool
@@ -28,7 +29,8 @@ struct StoryMediaView: View {
         isPaused: Bool = false,
         isMuted: Bool = false,
         onReady: @escaping () -> Void,
-        onVideoEnd: @escaping () -> Void
+        onVideoEnd: @escaping () -> Void,
+        onVideoDurationAvailable: @escaping (TimeInterval) -> Void = { _ in }  // ✅ NEW with default
     ) {
         self.slide = slide
         self.isActive = isActive
@@ -36,9 +38,9 @@ struct StoryMediaView: View {
         self.isMuted = isMuted
         self.onReady = onReady
         self.onVideoEnd = onVideoEnd
+        self.onVideoDurationAvailable = onVideoDurationAvailable
 
         if slide.mediaType == .video, let mediaURL = slide.mediaURL {
-            // ✅ Immediately prefer cached file if available
             if let cached = StoryCacheManager.shared.getCachedVideoURLSync(for: mediaURL) {
                 _videoURL = State(initialValue: cached)
                 _isLoading = State(initialValue: false)
@@ -47,7 +49,6 @@ struct StoryMediaView: View {
                 _isLoading = State(initialValue: true)
             }
         } else {
-            // non-video case
             _videoURL = State(initialValue: nil)
             _isLoading = State(initialValue: false)
         }
@@ -83,7 +84,6 @@ struct StoryMediaView: View {
                 
             case .video:
                 if let playerURL = videoURL {
-                    // ✅ CRITICAL: Stable ID prevents player recreation
                     StoryVideoPlayer(
                         url: playerURL,
                         onReady: {
@@ -91,11 +91,15 @@ struct StoryMediaView: View {
                             onReady()
                         },
                         onEnd: onVideoEnd,
+                        onDurationAvailable: { duration in
+                            // ✅ NEW: Forward duration to parent
+                            onVideoDurationAvailable(duration)
+                        },
                         isActive: isActive,
                         isPaused: isPaused,
                         isMuted: isMuted
                     )
-                    .id(slide.id)  // ✅ Stable identity = no recreation
+                    .id(slide.id)
                     .overlay(
                         Group {
                             if isLoading {
@@ -104,7 +108,6 @@ struct StoryMediaView: View {
                         }
                     )
                     .onAppear {
-                        // ✅ Load cached URL async on first appearance
                         loadCachedVideoURL()
                     }
                 } else {
@@ -121,11 +124,9 @@ struct StoryMediaView: View {
         }
     }
     
-    // ✅ NEW: Async cache lookup only on first appearance
+    // ✅ Async cache lookup only on first appearance
     private func loadCachedVideoURL() {
         guard let originalURL = slide.mediaURL else { return }
-        
-        // Only check cache once
         guard videoURL == originalURL else { return }
         
         Task {
@@ -136,7 +137,6 @@ struct StoryMediaView: View {
                 }
             } else {
                 Logger.debug("📥 Video not cached, downloading: \(originalURL.lastPathComponent)")
-                // Start background caching
                 cacheVideoInBackground(url: originalURL)
             }
         }
@@ -150,7 +150,6 @@ struct StoryMediaView: View {
                 let cachedURL = try await StoryCacheManager.shared.cacheVideo(url: url)
                 Logger.debug("✅ Video cached: \(url.lastPathComponent)")
                 
-                // Update URL to cached version
                 await MainActor.run {
                     videoURL = cachedURL
                 }
@@ -163,7 +162,7 @@ struct StoryMediaView: View {
     private var loadingView: some View {
         VStack(spacing: 12) {
             ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+//                .progressViewStyle(CircularProgressStyle(tint: .white))
                 .scaleEffect(1.5)
             
             Text("Loading...")

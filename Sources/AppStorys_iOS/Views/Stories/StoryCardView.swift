@@ -2,39 +2,50 @@
 //  StoryCardView.swift
 //  AppStorys_iOS
 //
-//  Fixed: Removed viewer-level gestures (moved to pager for proper separation)
+//  ✅ FIXED: Dynamic duration support for videos and images
+//  ✅ FIXED: Proper synchronization between timer and video playback
 //
 
 import SwiftUI
 import Combine
+import AVFoundation
 
 struct StoryCardView: View {
     @ObservedObject var manager: StoryManager
     let campaign: StoryCampaign
     let story: StoryDetails
     let groupIndex: Int
-    let dragOffsetOpacity: CGFloat  // ✅ NEW: Passed from pager for UI fading
+    let dragOffsetOpacity: CGFloat
     let onDismiss: () -> Void
     
-    // ✅ Card-level state only
+    // ✅ Card-level state
     @State private var timerCancellable: AnyCancellable?
     @State private var timerProgress: CGFloat = 0
     @State private var isMediaReady = false
     @State private var hasMarkedComplete = false
     @State private var isMuted = false
     
-    @State private var timerHealthCheckCounter: Int = 0
+    // ✅ NEW: Dynamic duration tracking
+    @State private var currentSlideDuration: TimeInterval = 5.0
+    @State private var videoDurations: [String: TimeInterval] = [:] // Cache video durations
+    @State private var slideStartTime: Date?
     
-    private let defaultSlideDuration: TimeInterval = 5.0
-    private let timerInterval: TimeInterval = 0.1
+    // ✅ NEW: Video completion tracking
+    @State private var videoCompletedNaturally = false
+    
+    private let defaultImageDuration: TimeInterval = 5.0
+    private let timerInterval: TimeInterval = 0.05  // ✅ More granular for smoother progress
     
     private var isActive: Bool {
         manager.currentGroupIndex == groupIndex
     }
     
+    private var currentSlideIndex: Int {
+        min(Int(timerProgress), story.slides.count - 1)
+    }
+    
     private var currentSlide: StorySlide {
-        let index = min(Int(timerProgress), story.slides.count - 1)
-        return story.slides[index]
+        story.slides[currentSlideIndex]
     }
     
     private var isCurrentSlideVideo: Bool {
@@ -49,15 +60,16 @@ struct StoryCardView: View {
                     isActive: isActive,
                     isPaused: manager.isPaused,
                     isMuted: isMuted,
-                    onReady: { isMediaReady = true },
+                    onReady: {
+                        handleMediaReady()
+                    },
                     onVideoEnd: {
-                        guard !hasMarkedComplete else { return }
-                        let currentSlideIndex = min(Int(timerProgress), story.slides.count - 1)
-                        if currentSlideIndex < story.slides.count - 1 {
-                            timerProgress = CGFloat(currentSlideIndex + 1)
-                        } else {
-                            markCompletedAndAdvance()
-                        }
+                        // ✅ CRITICAL: Video completed naturally
+                        handleVideoCompletion()
+                    },
+                    onVideoDurationAvailable: { duration in
+                        // ✅ NEW: Receive actual video duration from player
+                        handleVideoDuration(duration, for: currentSlide.id)
                     }
                 )
                 .ignoresSafeArea()
@@ -77,7 +89,6 @@ struct StoryCardView: View {
                             handleForward()
                         }
                 }
-                // ✅ Only allow taps when not dragging
                 .allowsHitTesting(dragOffsetOpacity > 0.9)
             }
             
@@ -99,14 +110,13 @@ struct StoryCardView: View {
                             isMuted.toggle()
                         },
                         onClose: onDismiss,
-                        opacity: dragOffsetOpacity  // ✅ Fade during drag
+                        opacity: dragOffsetOpacity
                     )
                     
                     Spacer()
                 }
             )
             
-            // ✅ CARD-LEVEL VISUAL: Rotation effect during swipe
             .rotation3DEffect(
                 getAngle(proxy: proxy),
                 axis: (x: 0, y: 1, z: 0),
@@ -115,88 +125,193 @@ struct StoryCardView: View {
             )
         }
         .onAppear {
-            // ✅ Only reset if this is truly first appearance
-            // Don't reset if we're becoming visible again after being in TabView
+            guard !manager.isDismissing else { return }
+            
             if timerProgress == 0 && !isMediaReady {
                 resetStoryState(preserveMediaReady: false)
             }
+            updateCurrentSlideDuration()
             startTimer()
         }
         .onDisappear {
             stopTimer()
         }
         .onChange(of: manager.currentGroupIndex) { oldValue, newValue in
+            guard !manager.isDismissing else {
+                Logger.debug("⏸️ Ignoring group index change during dismissal")
+                return
+            }
+            
             if newValue == groupIndex {
-                // ✅ Becoming active
                 let wasInactive = oldValue != groupIndex
-                
-                // ✅ If switching back to this group, preserve media ready state
-                // (cached content won't re-trigger onReady callback)
                 let shouldPreserveMedia = wasInactive && isMediaReady
                 
                 resetStoryState(preserveMediaReady: shouldPreserveMedia)
+                updateCurrentSlideDuration()
                 startTimer()
                 manager.onGroupIndexChanged()
                 
-                Logger.debug("🔄 Story group \(groupIndex) activated (from: \(oldValue), preserved media: \(shouldPreserveMedia))")
+                Logger.debug("🔄 Story group \(groupIndex) activated")
             } else {
-                // ✅ Becoming inactive - stop timer
                 stopTimer()
-                Logger.debug("⏸️ Story group \(groupIndex) deactivated - timer stopped")
+                Logger.debug("⏸️ Story group \(groupIndex) deactivated")
             }
+        }
+        .onChange(of: currentSlideIndex) { _, _ in
+            // ✅ Update duration when slide changes
+            updateCurrentSlideDuration()
+            videoCompletedNaturally = false
+        }
+    }
+    
+    // MARK: - Media Event Handlers
+    
+    /// ✅ NEW: Handle media ready event
+    private func handleMediaReady() {
+        isMediaReady = true
+        slideStartTime = Date()
+        
+        Logger.debug("✅ Media ready - Duration: \(currentSlideDuration)s")
+    }
+    
+    /// ✅ NEW: Handle video completion
+    private func handleVideoCompletion() {
+        guard !manager.isDismissing else {
+            Logger.debug("⏭️ Skipping advance - story is dismissing")
+            return
+        }
+        
+        guard !hasMarkedComplete else { return }
+        
+        videoCompletedNaturally = true
+        
+        Logger.info("🎬 Video completed naturally")
+        
+        // Advance to next slide or complete story
+        if currentSlideIndex < story.slides.count - 1 {
+            advanceToSlide(currentSlideIndex + 1)
+        } else {
+            markCompletedAndAdvance()
+        }
+    }
+    
+    /// ✅ NEW: Receive video duration from player
+    private func handleVideoDuration(_ duration: TimeInterval, for slideId: String) {
+        videoDurations[slideId] = duration
+        
+        // Update current duration if this is the active slide
+        if currentSlide.id == slideId {
+            currentSlideDuration = duration
+            Logger.debug("📹 Video duration received: \(duration)s for slide \(slideId)")
+        }
+    }
+    
+    // MARK: - Duration Management
+    
+    /// ✅ NEW: Update duration for current slide
+    private func updateCurrentSlideDuration() {
+        let slide = currentSlide
+        
+        switch slide.mediaType {
+        case .video:
+            // Check if we have cached duration
+            if let cachedDuration = videoDurations[slide.id] {
+                currentSlideDuration = cachedDuration
+                Logger.debug("📹 Using cached video duration: \(cachedDuration)s")
+            } else {
+                // Use default until we get actual duration from player
+                currentSlideDuration = defaultImageDuration
+                Logger.debug("📹 Waiting for video duration...")
+            }
+            
+        case .image:
+            // ✅ TODO: If server sends image duration, use it here
+            // currentSlideDuration = slide.duration ?? defaultImageDuration
+            currentSlideDuration = defaultImageDuration
+            Logger.debug("🖼️ Using image duration: \(defaultImageDuration)s")
+            
+        case .none:
+            currentSlideDuration = defaultImageDuration
         }
     }
     
     // MARK: - Timer Lifecycle
     
-    /// ✅ Start a fresh timer - clean slate
     private func startTimer() {
-        stopTimer()
+        guard !manager.isDismissing else {
+            Logger.debug("⏸️ Skipping timer start - story is dismissing")
+            return
+        }
         
-        Logger.debug("▶️ Starting timer for story group \(groupIndex)")
+        stopTimer()
+        slideStartTime = Date()
+        
+        Logger.debug("▶️ Starting timer for story group \(groupIndex) - Duration: \(currentSlideDuration)s")
         
         timerCancellable = Timer.publish(every: timerInterval, on: .main, in: .common)
             .autoconnect()
             .sink { [weak manager] _ in
                 guard let manager = manager else { return }
+                
+                // ✅ CRITICAL: Stop timer immediately if dismissing
+                guard !manager.isDismissing else { return }
                 guard manager.currentGroupIndex == groupIndex else { return }
-                
-                // ✅ Health check - detect stuck timers
-                if !manager.isPaused && isMediaReady {
-                    timerHealthCheckCounter += 1
-                    
-                    if timerHealthCheckCounter > 100 && timerProgress < 0.1 {
-                        Logger.error("🚨 Timer stuck! Progress: \(timerProgress), Check: \(timerHealthCheckCounter)")
-                        // Force recovery
-                        isMediaReady = true
-                    }
-                }
-                
                 guard !manager.isPaused && isMediaReady else { return }
                 guard !hasMarkedComplete else { return }
                 
-                let currentSlideIndex = min(Int(timerProgress), story.slides.count - 1)
+                // ✅ NEW: For videos that completed naturally, don't advance via timer
+                if isCurrentSlideVideo && videoCompletedNaturally {
+                    return
+                }
                 
-                if currentSlideIndex == story.slides.count - 1 && !manager.isGroupViewed(story.id) {
+                let slideIndex = currentSlideIndex
+                
+                // Mark slide as viewed at 50% completion
+                let progressWithinSlide = timerProgress - CGFloat(slideIndex)
+                if progressWithinSlide >= 0.5 && progressWithinSlide < 0.6 {
+                    manager.markSlideViewed(
+                        storyId: story.id,
+                        slideId: story.slides[slideIndex].id,
+                        campaignId: campaign.id
+                    )
+                }
+                
+                // Mark story complete when last slide reaches 90%
+                if slideIndex == story.slides.count - 1 &&
+                   progressWithinSlide >= 0.9 &&
+                   !manager.isGroupViewed(story.id) {
                     manager.markGroupFullyViewed(storyId: story.id, campaignId: campaign.id)
                 }
                 
-                timerProgress += timerInterval / defaultSlideDuration
+                // ✅ NEW: Use actual duration for progress calculation
+                timerProgress += timerInterval / currentSlideDuration
                 
-                if timerProgress >= CGFloat(story.slides.count) {
-                    markCompletedAndAdvance()
-                } else if timerProgress >= CGFloat(currentSlideIndex + 1) {
-                    let slide = story.slides[currentSlideIndex]
-                    manager.markSlideViewed(
-                        storyId: story.id,
-                        slideId: slide.id,
-                        campaignId: campaign.id
-                    )
+                // Check if current slide is complete
+                if timerProgress >= CGFloat(slideIndex + 1) {
+                    if slideIndex < story.slides.count - 1 {
+                        // Advance to next slide
+                        advanceToSlide(slideIndex + 1)
+                    } else {
+                        // Story complete
+                        markCompletedAndAdvance()
+                    }
                 }
             }
     }
     
-    /// ✅ Stop and clean up timer
+    /// ✅ NEW: Advance to specific slide
+    private func advanceToSlide(_ index: Int) {
+        guard index < story.slides.count else { return }
+        
+        timerProgress = CGFloat(index)
+        videoCompletedNaturally = false
+        isMediaReady = false
+        slideStartTime = Date()
+        updateCurrentSlideDuration()
+        
+        Logger.debug("⏭️ Advanced to slide \(index)")
+    }
+    
     private func stopTimer() {
         timerCancellable?.cancel()
         timerCancellable = nil
@@ -206,39 +321,51 @@ struct StoryCardView: View {
     private func resetStoryState(preserveMediaReady: Bool = false) {
         timerProgress = 0
         hasMarkedComplete = false
+        videoCompletedNaturally = false
+        slideStartTime = nil
         
-        // ✅ Only reset isMediaReady if content isn't cached
         if !preserveMediaReady {
             isMediaReady = false
         }
         
-        Logger.debug("🔄 Story state reset for group \(groupIndex) (preserving media: \(preserveMediaReady), ready: \(isMediaReady))")
+        Logger.debug("🔄 Story state reset for group \(groupIndex) (preserving media: \(preserveMediaReady))")
     }
     
-    // MARK: - Helper Methods
+    // MARK: - Navigation Helpers
     
     private func handleBackward() {
         hasMarkedComplete = false
+        videoCompletedNaturally = false
         
-        if timerProgress < 1.0 {
+        let progressWithinSlide = timerProgress - CGFloat(currentSlideIndex)
+        
+        if progressWithinSlide < 0.3 && currentSlideIndex > 0 {
+            // Go to previous slide
+            advanceToSlide(currentSlideIndex - 1)
+        } else if timerProgress < 1.0 {
+            // Go to previous group
             moveToGroup(forward: false)
         } else {
-            timerProgress = CGFloat(Int(timerProgress) - 1)
+            // Restart current slide
+            advanceToSlide(currentSlideIndex)
         }
     }
     
     private func handleForward() {
-        let currentSlideIndex = min(Int(timerProgress), story.slides.count - 1)
-        
         if currentSlideIndex >= story.slides.count - 1 {
             guard !hasMarkedComplete else { return }
             markCompletedAndAdvance()
         } else {
-            timerProgress = CGFloat(currentSlideIndex + 1)
+            advanceToSlide(currentSlideIndex + 1)
         }
     }
     
     private func markCompletedAndAdvance() {
+        guard !manager.isDismissing else {
+            Logger.debug("⏭️ Skipping advance - already dismissing")
+            return
+        }
+        
         hasMarkedComplete = true
         manager.markGroupFullyViewed(storyId: story.id, campaignId: campaign.id)
         timerProgress = CGFloat(story.slides.count)
@@ -246,13 +373,18 @@ struct StoryCardView: View {
     }
     
     private func moveToGroup(forward: Bool) {
+        guard !manager.isDismissing else {
+            Logger.debug("⏭️ Skipping group navigation - dismissing")
+            return
+        }
+        
         if !forward {
             if groupIndex > 0 {
                 withAnimation {
                     manager.currentGroupIndex = groupIndex - 1
                 }
             } else {
-                timerProgress = 0
+                advanceToSlide(0)
             }
         } else {
             if groupIndex < campaign.stories.count - 1 {
@@ -260,6 +392,11 @@ struct StoryCardView: View {
                     manager.currentGroupIndex = groupIndex + 1
                 }
             } else {
+                // ✅ CRITICAL: Stop timer BEFORE dismissing
+                stopTimer()
+                
+                Logger.info("🏁 Reached end of story campaign - dismissing")
+                
                 withAnimation(.easeInOut(duration: 0.3)) {
                     onDismiss()
                 }
