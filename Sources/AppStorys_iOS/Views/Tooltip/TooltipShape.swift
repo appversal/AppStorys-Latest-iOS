@@ -59,10 +59,9 @@ struct TooltipShape: View {
     
     var body: some View {
         ZStack(alignment: .center) {
-            // Main rectangle
+
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(.clear)
-                .stroke(color)
                 .frame(width: width, height: height)
             
             // Arrow flush against rectangle edge

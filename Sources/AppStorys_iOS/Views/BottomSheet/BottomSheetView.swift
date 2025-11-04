@@ -53,13 +53,8 @@ public struct BottomSheetView: View {
             Spacer()
             
             VStack(spacing: 0) {
-                // Close button
-                if showCloseButton {
-                    closeButton
-                }
                 
                 // Dynamic content elements
-                ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
                         // 🖼️ Image elements (no background)
                         ForEach(sortedElements, id: \.id) { element in
@@ -81,8 +76,6 @@ public struct BottomSheetView: View {
                                 ))
                         )
                     }
-                }
-
             }
             .background(
                 Rectangle()
@@ -90,7 +83,18 @@ public struct BottomSheetView: View {
                     .onTapGesture {
                         handleDismiss()
                     })
+            
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                Group{
+                    if showCloseButton {
+                        closeButton
+                    }
+                }
+                    .offset(y: -32)
+                ,alignment: .topLeading
+            )
+
             .offset(y: isPresented ? 0 : UIScreen.main.bounds.height)
         }
         .ignoresSafeArea(edges: .bottom)

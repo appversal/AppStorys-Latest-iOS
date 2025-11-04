@@ -22,12 +22,12 @@ public struct BannerDetails: Codable, Sendable {
 }
 
 public struct BannerStyling: Codable, Sendable {
-    public let marginBottom: Int?
-    public let marginLeft: Int?
-    public let marginRight: Int?
-    public let topLeftRadius: Int?
-    public let topRightRadius: Int?
-    public let bottomLeftRadius: Int?
-    public let bottomRightRadius: Int?
+    public let marginBottom: String?
+    public let marginLeft: String?
+    public let marginRight: String?
+    public let topLeftRadius: String?
+    public let topRightRadius: String?
+    public let bottomLeftRadius: String?
+    public let bottomRightRadius: String?
     public let enableCloseButton: Bool?
 }

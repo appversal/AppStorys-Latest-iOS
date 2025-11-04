@@ -2,7 +2,7 @@
 //  AppStorysOverlayModifier.swift
 //  AppStorys_iOS
 //
-//  ✅ FIXED: Screen-aware campaign display to prevent stale lifecycle interference
+//  ✅ UPDATED: Added Banner support
 //
 
 import SwiftUI
@@ -132,6 +132,19 @@ struct AppStorysOverlayModifier: ViewModifier {
     // ✅ NEW: Extracted campaign overlays into computed view
     @ViewBuilder
     private var campaignOverlays: some View {
+        // ✅ NEW: Banner Overlay
+        if showBanner,
+           let bannerCampaign = sdk.activeBannerCampaign,
+           case let .banner(details) = bannerCampaign.details {
+            BannerView(
+                campaignId: bannerCampaign.id,
+                details: details
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .animation(.spring(response: 0.4), value: bannerCampaign.id)
+            .zIndex(800)
+        }
+        
         // PiP Overlay
         if showPIP, let pipCampaign = sdk.activePIPCampaign {
             AppStorysPIPView(
