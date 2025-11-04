@@ -2,9 +2,9 @@
 //  TriggerEvents.swift
 //  AppStorys_iOS
 //
-//  Created by Ansh Kalra on 03/11/25.
+//  ✅ AUTO-WAITS: All methods wait for SDK initialization
+//  ✅ THREAD-SAFE: Properly queued operations
 //
-
 
 import SwiftUI
 
@@ -14,6 +14,7 @@ public extension AppStorys {
     // MARK: - Event Triggering (Static Methods)
     
     /// Triggers a custom AppStorys event
+    /// ✅ Automatically waits for SDK to be ready
     /// - Parameters:
     ///   - eventType: Name of the event (e.g., "Loan Approved", "Purchase Completed")
     ///   - metadata: Optional additional data to attach to the event
@@ -29,15 +30,19 @@ public extension AppStorys {
         metadata: [String: Any]? = nil
     ) {
         Task {
+            // ✅ Auto-wait for initialization
+            await shared.waitForInitialization()
+            
             await shared.trackEvents(
                 eventType: eventType,
-                campaignId: "",
+                campaignId: " ", // Space indicates no specific campaign
                 metadata: metadata
             )
         }
     }
     
     /// Triggers a campaign-specific event
+    /// ✅ Automatically waits for SDK to be ready
     /// - Parameters:
     ///   - eventType: Name of the event
     ///   - campaignId: ID of the associated campaign
@@ -53,6 +58,9 @@ public extension AppStorys {
         metadata: [String: Any]? = nil
     ) {
         Task {
+            // ✅ Auto-wait for initialization
+            await shared.waitForInitialization()
+            
             await shared.trackEvents(
                 eventType: eventType,
                 campaignId: campaignId,
