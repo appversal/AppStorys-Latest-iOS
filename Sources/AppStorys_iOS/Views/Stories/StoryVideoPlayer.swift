@@ -123,9 +123,9 @@ struct StoryVideoPlayer: UIViewControllerRepresentable {
                 
                 if player.status == .readyToPlay {
                     self.isReadyToPlay = true
-                    DispatchQueue.main.async {
-                        self.onReady()
-                    }
+//                    DispatchQueue.main.async {
+//                        self.onReady()
+//                    }
                     
                     // ✅ NEW: Report video duration when ready
                     self.reportVideoDuration(player: player)
@@ -185,10 +185,10 @@ struct StoryVideoPlayer: UIViewControllerRepresentable {
             
             hasDurationBeenReported = true
             
-            DispatchQueue.main.async { [weak self] in
-                self?.onDurationAvailable(durationInSeconds)
-                Logger.info("📹 Video duration detected: \(String(format: "%.2f", durationInSeconds))s")
-            }
+//            DispatchQueue.main.async { [weak self] in
+//                self?.onDurationAvailable(durationInSeconds)
+//                Logger.info("📹 Video duration detected: \(String(format: "%.2f", durationInSeconds))s")
+//            }
         }
         
         func cleanup() {

@@ -2,7 +2,7 @@
 //  AppStorysOverlayModifier.swift
 //  AppStorys_iOS
 //
-//  ✅ FIXED: Screen-aware campaign display to prevent stale lifecycle interference
+//  ✅ UPDATED: Added Banner support
 //
 
 import SwiftUI
@@ -31,6 +31,9 @@ struct AppStorysOverlayModifier: ViewModifier {
     
     // ✅ NEW: Track which screen's campaigns are being displayed
     @State private var displayedScreenName: String?
+    
+    // ✅ NEW: Simple tooltip delay
+    @State private var showTooltipAfterDelay = false
     
     init(
         sdk: AppStorys,
@@ -90,6 +93,16 @@ struct AppStorysOverlayModifier: ViewModifier {
         .onChange(of: sdk.activeBottomSheetCampaign) { oldValue, newValue in
             handleBottomSheetCampaignChange(from: oldValue, to: newValue)
         }
+        .onChange(of: tooltipManager.isPresenting) { oldValue, newValue in
+            if newValue {
+                Task {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    showTooltipAfterDelay = true
+                }
+            } else {
+                showTooltipAfterDelay = false
+            }
+        }
         .sheet(item: $presentedBottomSheetCampaign, onDismiss: handleSheetDismissal) { campaign in
             if case let .bottomSheet(details) = campaign.details {
                 BottomSheetView(
@@ -119,6 +132,19 @@ struct AppStorysOverlayModifier: ViewModifier {
     // ✅ NEW: Extracted campaign overlays into computed view
     @ViewBuilder
     private var campaignOverlays: some View {
+        // ✅ NEW: Banner Overlay
+        if showBanner,
+           let bannerCampaign = sdk.activeBannerCampaign,
+           case let .banner(details) = bannerCampaign.details {
+            BannerView(
+                campaignId: bannerCampaign.id,
+                details: details
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .animation(.spring(response: 0.4), value: bannerCampaign.id)
+            .zIndex(800)
+        }
+        
         // PiP Overlay
         if showPIP, let pipCampaign = sdk.activePIPCampaign {
             AppStorysPIPView(
@@ -147,8 +173,8 @@ struct AppStorysOverlayModifier: ViewModifier {
             .zIndex(900)
         }
         
-        // ✅ Tooltip overlay
-        if showTooltip, tooltipManager.isPresenting {
+        // ✅ Tooltip overlay with delay
+        if showTooltip, tooltipManager.isPresenting, showTooltipAfterDelay {
             TooltipView(manager: tooltipManager)
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: tooltipManager.isPresenting)

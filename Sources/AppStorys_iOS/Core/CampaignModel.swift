@@ -57,14 +57,14 @@ public struct CampaignModel: Codable, Sendable, Equatable, Identifiable {
         case "PIP":
             let pipDetails = try container.decode(PipDetails.self, forKey: .details)
             details = .pip(pipDetails)
-            Logger.debug("âœ… Decoded PIP campaign")
+            Logger.debug("Decoded PIP campaign")
         case "BAN":
             let bannerDetails = try container.decode(BannerDetails.self, forKey: .details)
             details = .banner(bannerDetails)
         case "FLT":
             let floaterDetails = try container.decode(FloaterDetails.self, forKey: .details)
             details = .floater(floaterDetails)
-            Logger.debug("âœ… Decoded FLT campaign")
+            Logger.debug("Decoded FLT campaign")
         case "CSAT":
             let csatDetails = try container.decode(CsatDetails.self, forKey: .details)
             details = .csat(csatDetails)
@@ -74,21 +74,25 @@ public struct CampaignModel: Codable, Sendable, Equatable, Identifiable {
         case "BTS":
             let btsDetails = try container.decode(BottomSheetDetails.self, forKey: .details)
             details = .bottomSheet(btsDetails)
-            Logger.debug("âœ… Decoded BTS campaign")
+            Logger.debug("Decoded BTS campaign")
         case "WID":
             let widgetDetails = try container.decode(WidgetDetails.self, forKey: .details)
             details = .widget(widgetDetails)
-            Logger.debug("âœ… Decoded WID campaign with \(widgetDetails.widgetImages?.count ?? 0) images")
+            Logger.debug("Decoded WID campaign with \(widgetDetails.widgetImages?.count ?? 0) images")
         case "STR":
             let storyDetails = try container.decode([StoryDetails].self, forKey: .details)
             details = .stories(storyDetails)
-            Logger.debug("âœ… Decoded STR campaign with \(storyDetails.count) stories")
+            Logger.debug("Decoded STR campaign with \(storyDetails.count) stories")
         case "MOD":
             let modalDetails = try container.decode(ModalDetails.self, forKey: .details)
             details = .modal(modalDetails)
-            Logger.debug("âœ… Decoded MOD campaign")
+            Logger.debug("Decoded MOD campaign")
+        case "TTP":
+            let tooltipDetails = try container.decode(TooltipDetails.self, forKey: .details)
+            details = .tooltip(tooltipDetails)  // ← Assign to details property
+            Logger.debug("✅ Decoded TTP campaign with \(tooltipDetails.tooltips.count) steps")
         default:
-            Logger.warning("âš ï¸ Unknown campaign type: \(campaignType)")
+            Logger.warning("Unknown campaign type: \(campaignType)")
             details = .unknown
         }
     }

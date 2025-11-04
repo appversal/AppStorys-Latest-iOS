@@ -48,40 +48,56 @@ public struct BottomSheetView: View {
     // MARK: - Body
     
     public var body: some View {
-        ZStack {
-            // Dimmed background
-            Color.black.opacity(0.4)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    handleDismiss()
-                }
+        // Bottom sheet content
+        VStack(spacing: 0) {
+            Spacer()
             
-            // Bottom sheet content
             VStack(spacing: 0) {
-                Spacer()
                 
-                VStack(spacing: 0) {
-                    // Close button
-                    if showCloseButton {
-                        closeButton
-                    }
-                    
-                    // Dynamic content elements
-                    ScrollView(showsIndicators: false) {
-                        VStack(spacing: 0) {
-                            ForEach(sortedElements, id: \.id) { element in
+                // Dynamic content elements
+                    VStack(spacing: 0) {
+                        // 🖼️ Image elements (no background)
+                        ForEach(sortedElements, id: \.id) { element in
+                            if element.type == "image" {
                                 elementView(for: element)
                             }
                         }
+
+                        // ✅ Body + CTA group with background
+                        VStack(spacing: 0) {
+                            ForEach(sortedElements.filter { ["body", "cta"].contains($0.type) }, id: \.id) { element in
+                                elementView(for: element)
+                            }
+                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(backgroundColor(
+                                    sortedElements.first(where: { $0.type == "body" })?.bodyBackgroundColor
+                                ))
+                        )
+                    }
+            }
+            .background(
+                Rectangle()
+                    .fill(.clear)
+                    .onTapGesture {
+                        handleDismiss()
+                    })
+            
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                Group{
+                    if showCloseButton {
+                        closeButton
                     }
                 }
-                .background(Color(.systemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: -5)
-                .offset(y: isPresented ? 0 : UIScreen.main.bounds.height)
-            }
-            .ignoresSafeArea(edges: .bottom)
+                    .offset(y: -32)
+                ,alignment: .topLeading
+            )
+
+            .offset(y: isPresented ? 0 : UIScreen.main.bounds.height)
         }
+        .ignoresSafeArea(edges: .bottom)
         .onAppear {
             animateIn()
             trackViewIfNeeded()
@@ -202,32 +218,36 @@ public struct BottomSheetView: View {
     // MARK: - CTA Element
     
     @ViewBuilder
-    private func ctaElement(_ element: BottomSheetElement) -> some View {
-        let ctaWidth = element.ctaFullWidth == true ? nil : CGFloat(element.ctaWidth ?? 120)
-        let ctaHeight = CGFloat(element.ctaHeight ?? 50)
-        
-        Button(action: {
-            handleCTATap(element)
-        }) {
-            Text(element.ctaText ?? "Click Me")
-                .font(.system(size: CGFloat(element.ctaFontSize ?? 16), weight: .medium))
-                .foregroundColor(fontColor(element.ctaTextColour))
-                .fontWeight(isBoldCTA(element.ctaFontDecoration) ? .bold : .medium)
-                .italic(isItalicCTA(element.ctaFontDecoration))
-                .underline(isUnderlinedCTA(element.ctaFontDecoration))
-                .frame(maxWidth: ctaWidth == nil ? .infinity : ctaWidth, minHeight: ctaHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: CGFloat(element.ctaBorderRadius ?? 8), style: .continuous)
-                        .fill(backgroundColor(element.ctaBoxColor))
-                )
+        private func ctaElement(_ element: BottomSheetElement) -> some View {
+            let ctaFullWidth = element.ctaFullWidth == true
+            let ctaWidth = CGFloat(element.ctaWidth ?? 120)
+            let ctaHeight = CGFloat(element.ctaHeight ?? 50)
+            
+            Button(action: {
+                handleCTATap(element)
+            }) {
+                Text(element.ctaText ?? "Click Me")
+                    .font(.system(size: CGFloat(element.ctaFontSize ?? 16)))
+                    .fontWeight(isBoldCTA(element.ctaFontDecoration) ? .bold : .medium)
+                    .italic(isItalicCTA(element.ctaFontDecoration))
+                    .underline(isUnderlinedCTA(element.ctaFontDecoration))
+                    .foregroundColor(fontColor(element.ctaTextColour))
+                    .frame(
+                        maxWidth: ctaFullWidth ? .infinity : ctaWidth,
+                        minHeight: ctaHeight,
+                        maxHeight: ctaHeight
+                    )
+                    .background(
+                        RoundedRectangle(cornerRadius: CGFloat(element.ctaBorderRadius ?? 8), style: .continuous)
+                            .fill(backgroundColor(element.ctaBoxColor))
+                    )
+            }
+            .padding(.top, paddingValueOrZero(element.paddingTop))
+            .padding(.bottom, paddingValueOrZero(element.paddingBottom))
+            .padding(.leading, paddingValue(element.paddingLeft))
+            .padding(.trailing, paddingValue(element.paddingRight))
+            .frame(maxWidth: .infinity, alignment: ctaAlignment(element.position))
         }
-        .frame(width: ctaWidth, height: ctaHeight)
-        .padding(.top, paddingValueOrZero(element.paddingTop))
-        .padding(.bottom, paddingValueOrZero(element.paddingBottom))
-        .padding(.leading, paddingValue(element.paddingLeft))
-        .padding(.trailing, paddingValue(element.paddingRight))
-        .frame(maxWidth: .infinity, alignment: ctaAlignment(element.position))
-    }
     
     // MARK: - Actions
     

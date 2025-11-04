@@ -16,8 +16,7 @@ public struct BottomSheetDetails: Codable, Sendable {
     
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case name, cornerRadius, elements
-        case enableCrossButton = "enableCrossButton"
+        case name, cornerRadius, elements, enableCrossButton
     }
 }
 
@@ -59,7 +58,6 @@ public struct BottomSheetElement: Codable, Sendable {
     // CTA properties
     public let ctaText: String?
     public let ctaLink: String?
-    public let ctaBackgroundColor: String?
     public let ctaBorderRadius: Int?
     public let ctaBoxColor: String?
     public let ctaFontDecoration: [String]?
