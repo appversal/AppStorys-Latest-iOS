@@ -38,7 +38,7 @@ private let configStorage = SDKConfigurationStorage()
 // MARK: - Public API Extension
 public extension AppStorys {
     
-    /// Configure AppStorys SDK credentials
+    /// Initialize AppStorys SDK credentials
     /// ✅ Call this ONCE in your App struct's .task modifier
     /// ✅ SDK auto-initializes in background
     /// ✅ All SDK calls are buffered until ready
@@ -53,7 +53,7 @@ public extension AppStorys {
     ///                 .withAppStorysOverlays()
     ///         }
     ///         .task {
-    ///             AppStorys.configure(
+    ///             AppStorys.initialize(
     ///                 accountID: "your-account-id",
     ///                 appID: "your-app-id",
     ///                 userID: "user123"
@@ -62,7 +62,7 @@ public extension AppStorys {
     ///     }
     /// }
     /// ```
-    static func configure(
+    static func initialize(
         accountID: String,
         appID: String,
         userID: String,
@@ -82,21 +82,6 @@ public extension AppStorys {
             await shared.autoInitialize()
         }
     }
-    
-    /// Legacy method - maintained for backward compatibility
-    static func initialize(
-        accountID: String,
-        appID: String,
-        userID: String,
-        baseURL: String = "https://users.appstorys.com"
-    ) async {
-        await shared.appstorys(
-            accountID: accountID,
-            appID: appID,
-            userID: userID,
-            baseURL: baseURL
-        )
-    }
 }
 
 // MARK: - Auto-Initialization Logic
@@ -112,7 +97,7 @@ extension AppStorys {
         }
         
         guard let config = await configStorage.retrieve() else {
-            Logger.error("❌ No configuration found - call AppStorys.configure() first")
+            Logger.error("❌ No configuration found - call AppStorys.initialize() first")
             return
         }
         
@@ -135,16 +120,12 @@ extension AppStorys {
 public extension AppStorys {
     
     /// Track screen with auto-initialization wait
-    /// ✅ Automatically waits for SDK to be ready
-    /// ✅ No initialization checks needed in your code
     static func trackScreen(
         _ screenName: String,
         completion: @escaping ([CampaignModel]) -> Void = { _ in }
     ) {
         Task {
-            // Auto-wait for initialization
             await shared.waitForInitialization()
-            
             await MainActor.run {
                 shared.trackScreen(screenName, completion: completion)
             }
@@ -165,8 +146,6 @@ public extension AppStorys {
 // MARK: - Initialization Waiter
 extension AppStorys {
     
-    /// Waits for SDK initialization with timeout
-    /// ⚠️ Internal use only
     func waitForInitialization(timeout: TimeInterval = 5.0) async {
         guard !isInitialized else { return }
         
@@ -175,13 +154,10 @@ extension AppStorys {
         let startTime = Date()
         
         while !isInitialized {
-            // Check timeout
             if Date().timeIntervalSince(startTime) > timeout {
                 Logger.error("❌ SDK initialization timeout after \(timeout)s")
                 break
             }
-            
-            // Wait 100ms and check again
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         
