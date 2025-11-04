@@ -724,6 +724,17 @@ public class AppStorys: ObservableObject {
     }
     
     private func presentTooltip(_ campaign: CampaignModel) {
+        
+        guard isInitialized else {
+            Logger.warning("⚠️ Cannot present tooltip - SDK not initialized yet")
+            return
+        }
+        
+        guard let tooltipManager = tooltipManager else {
+            Logger.error("❌ TooltipManager not available")
+            return
+        }
+
         guard let rootView = try? getCaptureView() else {
             Logger.error("❌ Cannot present tooltip - no root view")
             return

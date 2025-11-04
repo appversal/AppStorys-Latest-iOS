@@ -69,8 +69,9 @@ public struct BottomSheetView: View {
                                 elementView(for: element)
                             }
                         }
+                        .padding(.bottom, 20)
                         .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            Rectangle()
                                 .fill(backgroundColor(
                                     sortedElements.first(where: { $0.type == "body" })?.bodyBackgroundColor
                                 ))
