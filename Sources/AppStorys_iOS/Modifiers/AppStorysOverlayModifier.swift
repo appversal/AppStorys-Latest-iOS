@@ -169,8 +169,12 @@ struct AppStorysOverlayModifier: ViewModifier {
                 .zIndex(3000)
         }
 
-        // Capture Button Overlay
-        if showCapture, sdk.isScreenCaptureEnabled {
+        // Capture Button Overlay (safe version)
+        if showCapture,
+           sdk.isScreenCaptureEnabled,
+           let currentScreen = sdk.currentScreen,
+           sdk.captureContextProvider.currentView != nil {
+            
             ZStack(alignment: capturePosition.alignment) {
                 Color.clear
                 sdk.captureButton()
@@ -179,6 +183,7 @@ struct AppStorysOverlayModifier: ViewModifier {
             .zIndex(999)
             .transition(.scale.combined(with: .opacity))
             .animation(.spring(response: 0.3), value: sdk.isScreenCaptureEnabled)
+            
         }
 
         // Story overlay

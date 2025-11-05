@@ -88,6 +88,9 @@ public class AppStorys: ObservableObject {
     
     private var eventTrackingTasks: [String: Task<Void, Never>] = [:]
     
+    // ✅ NEW: Prevent screen changes during capture
+       private var isCapturing = false
+    
     // MARK: - Initialization
     private init() {
         campaignRepository.restoreFromStorage()
@@ -354,147 +357,6 @@ public class AppStorys: ObservableObject {
         self.userAttributes = attributes.mapValues { AnyCodable($0) }
         Logger.debug("User attributes updated: \(attributes.keys.joined(separator: ", "))")
     }
-
-    // MARK: - 🎯 ENHANCED Track Screen (Race-Safe)
-    
-    public func trackScreen(
-        _ screenName: String,
-        completion: @escaping ([CampaignModel]) -> Void = { _ in }
-    ) {
-        guard isInitialized, let userID = currentUserID else {
-            Logger.error("SDK not initialized")
-            completion([])
-            return
-        }
-
-        // ✅ CRITICAL FIX: Handle screen transition BEFORE state changes
-        if let previousScreen = currentScreen, previousScreen != screenName {
-            Logger.debug("Screen changed from \(previousScreen) → \(screenName)")
-            
-            // Mark old screen inactive
-            campaignRepository.markScreenInactive(previousScreen)
-            
-            // ✅ STEP 1: Clear dismissed campaigns FIRST (allows new campaigns to show)
-            dismissedCampaigns.removeAll()
-            Logger.debug("🧹 Cleared dismissed campaigns for new screen")
-            
-            // ✅ STEP 2: Dismiss tooltip (preserves tracking)
-            if tooltipManager.isPresenting {
-                Logger.info("📌 Auto-dismissing tooltip due to screen change")
-                tooltipManager.dismiss()
-            }
-            
-            // ✅ STEP 3: Invalidate element cache
-            elementRegistry.invalidateCache()
-            
-            // ✅ STEP 4: Use validated dismissal (instead of direct hideAllCampaigns)
-            handleScreenDisappeared(previousScreen)
-        }
-        
-        // ✅ Generate new transition ID to invalidate stale responses
-        let transitionID = UUID()
-        screenTransitionID = transitionID
-        
-        currentScreen = screenName
-        campaignRepository.markScreenActive(screenName)
-        
-        // Check cache AFTER dismissedCampaigns is cleared
-        if let cachedCampaigns = campaignRepository.getCampaigns(for: screenName, allowStale: false) {
-            Logger.info("⚡ Serving fresh cache for \(screenName) (\(cachedCampaigns.count) campaigns)")
-            applyCampaignsToState(cachedCampaigns)
-            completion(cachedCampaigns)
-            return
-        }
-        
-        let requestID = UUID()
-        activeScreenRequest = (screenName, requestID)
-        
-        Logger.info("🌐 Fetching campaigns from network for \(screenName) [Request: \(requestID)]")
-        
-        let attributesCopy = self.userAttributes
-        
-        Task {
-            do {
-                let result = try await campaignManager?.trackScreen(
-                    screenName: screenName,
-                    userID: userID,
-                    attributes: attributesCopy
-                ) ?? (campaigns: [], screenCaptureEnabled: false)
-                
-                await MainActor.run {
-                    // ✅ ENHANCED VALIDATION: Check both request ID and transition ID
-                    guard let active = self.activeScreenRequest,
-                          active.screenName == screenName,
-                          active.taskID == requestID else {
-                        Logger.warning("⚠️ Discarding stale response for \(screenName) [Request: \(requestID)]")
-                        self.campaignRepository.storeCampaigns(result.campaigns, for: screenName)
-                        completion([])
-                        return
-                    }
-                    
-                    guard self.screenTransitionID == transitionID else {
-                        Logger.warning("⚠️ Ignoring outdated campaign load for \(screenName) - newer screen loaded")
-                        self.campaignRepository.storeCampaigns(result.campaigns, for: screenName)
-                        completion([])
-                        return
-                    }
-                    
-                    guard self.currentScreen == screenName else {
-                        Logger.warning("⚠️ Screen changed during fetch: \(screenName) → \(self.currentScreen ?? "none")")
-                        self.campaignRepository.storeCampaigns(result.campaigns, for: screenName)
-                        completion([])
-                        return
-                    }
-                    
-                    self.updateCaptureState(result.screenCaptureEnabled)
-                    self.campaignRepository.storeCampaigns(result.campaigns, for: screenName)
-                    self.applyCampaignsToState(result.campaigns)
-                    
-                    if result.campaigns.isEmpty {
-                        Logger.info("✅ Screen tracked: \(screenName) - No campaigns available")
-                    } else {
-                        Logger.info("✅ Screen tracked: \(screenName) - \(result.campaigns.count) campaigns loaded")
-                    }
-                    
-                    completion(result.campaigns)
-                }
-                
-            } catch {
-                Logger.error("❌ Failed to fetch campaigns", error: error)
-                
-                await MainActor.run {
-                    guard let active = self.activeScreenRequest,
-                          active.screenName == screenName,
-                          active.taskID == requestID,
-                          self.screenTransitionID == transitionID else {
-                        Logger.warning("⚠️ Discarding stale error for \(screenName)")
-                        completion([])
-                        return
-                    }
-                    
-                    guard self.currentScreen == screenName else {
-                        Logger.warning("⚠️ Screen changed during error: \(screenName) → \(self.currentScreen ?? "none")")
-                        completion([])
-                        return
-                    }
-                    
-                    if let staleCampaigns = self.campaignRepository.getCampaigns(
-                        for: screenName,
-                        allowStale: true
-                    ) {
-                        Logger.info("📦 Network failed, serving stale cache (\(staleCampaigns.count) campaigns)")
-                        self.applyCampaignsToState(staleCampaigns)
-                        completion(staleCampaigns)
-                    } else {
-                        Logger.warning("⚠️ No cache available, serving empty")
-                        self.campaigns = []
-                        self.updateActiveCampaigns()
-                        completion([])
-                    }
-                }
-            }
-        }
-    }
     
     func cancelActiveScreenRequest() {
         if let active = activeScreenRequest {
@@ -552,36 +414,157 @@ public class AppStorys: ObservableObject {
     }
     
     // MARK: - Screen Capture API
-    public func captureScreen(from view: UIView) async throws {
+    public func captureScreen() async throws {
         guard isInitialized else {
             throw AppStorysError.notInitialized
         }
-        
+
         guard isScreenCaptureEnabled else {
             Logger.warning("⚠️ Screen capture is disabled by server")
             throw ScreenCaptureError.featureDisabled
         }
-        
-        guard let manager = screenCaptureManager else {
-            Logger.error("❌ Screen capture manager not initialized")
-            throw ScreenCaptureError.managerNotInitialized
-        }
-        
+
         guard let userId = currentUserID else {
             throw AppStorysError.notInitialized
         }
-        
+
         guard let screenName = currentScreen else {
             Logger.warning("⚠️ No active screen to capture")
             throw ScreenCaptureError.noActiveScreen
         }
+
+        // ✅ Notify SwiftUI hierarchy to trigger the live snapshot
+        Logger.info("📸 Triggering SwiftUI snapshot for screen: \(screenName)")
         
-        try await manager.captureAndUpload(
-            screenName: screenName,
-            userId: userId,
-            rootView: view
-        )
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .AppStorysTriggerSnapshot,
+                object: nil,
+                userInfo: ["screen": screenName, "userId": userId]
+            )
+        }
     }
+
+        // ✅ UPDATED trackScreen method with capture guard
+        public func trackScreen(
+            _ screenName: String,
+            completion: @escaping ([CampaignModel]) -> Void = { _ in }
+        ) {
+            guard isInitialized, let userID = currentUserID else {
+                Logger.error("SDK not initialized")
+                completion([])
+                return
+            }
+            
+            // ✅ CRITICAL: Ignore screen changes during capture operations
+            if isCapturing {
+                Logger.debug("🔒 Ignoring screen change during capture operation: \(screenName)")
+                completion([])
+                return
+            }
+
+            // Handle screen transition BEFORE state changes
+            if let previousScreen = currentScreen, previousScreen != screenName {
+                Logger.debug("Screen changed from \(previousScreen) → \(screenName)")
+                
+                campaignRepository.markScreenInactive(previousScreen)
+                dismissedCampaigns.removeAll()
+                Logger.debug("🧹 Cleared dismissed campaigns for new screen")
+                
+                if tooltipManager.isPresenting {
+                    Logger.info("📌 Auto-dismissing tooltip due to screen change")
+                    tooltipManager.dismiss()
+                }
+                
+                elementRegistry.invalidateCache()
+                handleScreenDisappeared(previousScreen)
+            }
+            
+            let transitionID = UUID()
+            screenTransitionID = transitionID
+            
+            currentScreen = screenName
+            campaignRepository.markScreenActive(screenName)
+            
+            // Check cache AFTER dismissedCampaigns is cleared
+            if let cachedCampaigns = campaignRepository.getCampaigns(for: screenName, allowStale: false) {
+                Logger.info("⚡ Serving fresh cache for \(screenName) (\(cachedCampaigns.count) campaigns)")
+                applyCampaignsToState(cachedCampaigns)
+                completion(cachedCampaigns)
+                return
+            }
+            
+            let requestID = UUID()
+            activeScreenRequest = (screenName, requestID)
+            
+            Logger.info("🌐 Fetching campaigns from network for \(screenName) [Request: \(requestID)]")
+            
+            let attributesCopy = self.userAttributes
+            
+            Task {
+                do {
+                    let result = try await campaignManager?.trackScreen(
+                        screenName: screenName,
+                        userID: userID,
+                        attributes: attributesCopy
+                    ) ?? (campaigns: [], screenCaptureEnabled: false)
+                    
+                    await MainActor.run {
+                        guard let active = self.activeScreenRequest,
+                              active.screenName == screenName,
+                              active.taskID == requestID,
+                              self.screenTransitionID == transitionID,
+                              self.currentScreen == screenName else {
+                            Logger.warning("⚠️ Discarding stale response for \(screenName)")
+                            self.campaignRepository.storeCampaigns(result.campaigns, for: screenName)
+                            completion([])
+                            return
+                        }
+                        
+                        self.updateCaptureState(result.screenCaptureEnabled)
+                        self.campaignRepository.storeCampaigns(result.campaigns, for: screenName)
+                        self.applyCampaignsToState(result.campaigns)
+                        
+                        if result.campaigns.isEmpty {
+                            Logger.info("✅ Screen tracked: \(screenName) - No campaigns available")
+                        } else {
+                            Logger.info("✅ Screen tracked: \(screenName) - \(result.campaigns.count) campaigns loaded")
+                        }
+                        
+                        completion(result.campaigns)
+                    }
+                    
+                } catch {
+                    Logger.error("❌ Failed to fetch campaigns", error: error)
+                    
+                    await MainActor.run {
+                        guard let active = self.activeScreenRequest,
+                              active.screenName == screenName,
+                              active.taskID == requestID,
+                              self.screenTransitionID == transitionID,
+                              self.currentScreen == screenName else {
+                            Logger.warning("⚠️ Discarding stale error for \(screenName)")
+                            completion([])
+                            return
+                        }
+                        
+                        if let staleCampaigns = self.campaignRepository.getCampaigns(
+                            for: screenName,
+                            allowStale: true
+                        ) {
+                            Logger.info("📦 Network failed, serving stale cache (\(staleCampaigns.count) campaigns)")
+                            self.applyCampaignsToState(staleCampaigns)
+                            completion(staleCampaigns)
+                        } else {
+                            Logger.warning("⚠️ No cache available, serving empty")
+                            self.campaigns = []
+                            self.updateActiveCampaigns()
+                            completion([])
+                        }
+                    }
+                }
+            }
+        }
     
     // MARK: - Track Event
     public func trackEvents(

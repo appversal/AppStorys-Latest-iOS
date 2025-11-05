@@ -2,7 +2,7 @@
 //  CaptureTagBridge.swift
 //  AppStorys_iOS
 //
-//  Fixed: Removed window.first logic
+//  ✅ FIXED: Separate tagging for widgets vs regular elements
 //
 
 import SwiftUI
@@ -13,29 +13,45 @@ import UIKit
 extension AppStorys {
     
     /// Create a capture button that handles everything automatically
+    /// ✅ NO PARAMETERS: Uses .captureContext() from your views
     /// Usage: sdk.captureButton()
     @MainActor
     public func captureButton() -> some View {
         ScreenCaptureButton {
-            // ✅ Uses new captureScreen() method with context
+            // ✅ captureScreen() now gets view from context automatically
             try await self.captureScreen()
         }
     }
 }
 
-// MARK: - Public Tagging Extension
+// MARK: - Public Tagging Extensions
 
 extension View {
-    /// Tag a view for screen capture
-    /// This fixes SwiftUI's accessibility identifier not working with UIKit
+    /// Tag a regular UI element for screen capture
+    /// These will be sent to /identify-elements/ with screenshot
     ///
     /// Usage:
     /// ```swift
     /// Text("Hello")
-    ///     .captureTag("hello_text")
+    ///     .captureAppStorysTag("hello_text")
     /// ```
     public func captureAppStorysTag(_ identifier: String) -> some View {
-        let prefixedId = "APPSTORYS_\(identifier)"
+        let prefixedId = "APPSTORYS_ELEMENT_\(identifier)"
+        return self.background(
+            CaptureTagBridge(identifier: prefixedId)
+        )
+    }
+    
+    /// Tag a widget for screen capture
+    /// These will be sent to /identify-positions/ separately
+    ///
+    /// Usage:
+    /// ```swift
+    /// AppStorys.Widgets()
+    ///     .captureAppStorysWidgetTag("first_widget")
+    /// ```
+    public func captureAppStorysWidgetTag(_ identifier: String) -> some View {
+        let prefixedId = "APPSTORYS_WIDGET_\(identifier)"
         return self.background(
             CaptureTagBridge(identifier: prefixedId)
         )
@@ -63,7 +79,7 @@ private struct CaptureTagBridge: UIViewRepresentable {
 private class CaptureTagView: UIView {
     override var accessibilityIdentifier: String? {
         didSet {
-            // Just store it normally
+            // Just store it - ElementRegistry will find it via hierarchy scan
         }
     }
 }

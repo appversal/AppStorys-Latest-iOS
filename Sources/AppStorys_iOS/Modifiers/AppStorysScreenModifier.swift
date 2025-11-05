@@ -2,12 +2,13 @@
 //  AppStorysScreenModifier.swift
 //  AppStorys_iOS
 //
-//  ✅ FIXED: Proper capture context targeting actual content
+//  ✅ FIXED: Proper integration with ScreenCaptureManager.captureAndUpload
 //
 
 import SwiftUI
+import UIKit
 
-// MARK: - Screen Modifier (unchanged)
+// MARK: - Screen Modifier with Snapshot Support
 
 struct AppStorysScreenModifier: ViewModifier {
     let screenName: String
@@ -16,13 +17,54 @@ struct AppStorysScreenModifier: ViewModifier {
     @StateObject private var sdk = AppStorys.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var isVisible = false
-    
+    @State private var triggerSnapshot = false
+     
     func body(content: Content) -> some View {
         content
-            // ✅ CRITICAL: Apply capture context first
-            .background(
+            // ✅ Capture context overlay
+            .overlay(
                 CaptureContextProviderView()
+                    .allowsHitTesting(false)
             )
+            // ✅ Listen for snapshot trigger
+            .onReceive(NotificationCenter.default.publisher(for: .AppStorysTriggerSnapshot)) { notification in
+                guard let info = notification.userInfo as? [String: Any],
+                      let requestedScreen = info["screen"] as? String,
+                      requestedScreen == screenName else { return }
+                
+                Logger.debug("📸 Received snapshot trigger for \(screenName)")
+                triggerSnapshot = true
+            }
+            // ✅ SwiftUI Snapshot Integration
+            .snapshot(trigger: triggerSnapshot) { image in
+                Task {
+                    guard let userId = sdk.currentUserID,
+                          let captureManager = sdk.screenCaptureManager else {
+                        Logger.warning("⚠️ Cannot upload snapshot - SDK not ready")
+                        triggerSnapshot = false
+                        return
+                    }
+                    
+                    // ✅ Get the root view for element discovery
+                    guard let rootView = try? sdk.getCaptureView() else {
+                        Logger.error("❌ Cannot get root view for capture")
+                        triggerSnapshot = false
+                        return
+                    }
+                    
+                    Logger.info("📤 Processing SwiftUI snapshot for \(screenName)")
+                    
+                    do {
+                        try await captureManager.uploadSwiftUISnapshot(image, screenName: screenName, userId: userId)
+                        Logger.info("✅ SwiftUI snapshot uploaded successfully")
+                    } catch {
+                        Logger.error("❌ Failed to upload SwiftUI snapshot: \(error)")
+                    }
+                    
+                    triggerSnapshot = false
+                }
+            }
+            // ✅ Lifecycle tracking
             .onAppear {
                 isVisible = true
                 Logger.debug("📺 Screen appeared: \(screenName)")
@@ -39,7 +81,14 @@ struct AppStorysScreenModifier: ViewModifier {
                 } else {
                     Logger.info("🌙 App backgrounded - preserving everything")
                 }
+
+                // 🧹 NEW: Clear capture context if this screen owned it
+                if sdk.currentScreen == screenName {
+                    Logger.debug("🧹 Clearing capture context (screen \(screenName) no longer visible)")
+                    sdk.clearCaptureContext()
+                }
             }
+
             .onChange(of: scenePhase) { oldPhase, newPhase in
                 if newPhase == .active && isVisible {
                     Logger.debug("♻️ App returned to foreground on \(screenName)")
@@ -49,7 +98,56 @@ struct AppStorysScreenModifier: ViewModifier {
     }
 }
 
-// MARK: - ✅ FIXED: Capture Context Provider
+// MARK: - ✅ SwiftUI Snapshot Implementation (from article)
+
+fileprivate struct SnapshotModifier: ViewModifier {
+    var trigger: Bool
+    var onComplete: (UIImage) -> ()
+    @State private var view: UIView = .init(frame: .zero)
+    
+    func body(content: Content) -> some View {
+        content
+            .background(ViewExtractor(view: view))
+            .compositingGroup()
+            .onChange(of: trigger) { oldValue, newValue in
+                if newValue {
+                    generateSnapshot()
+                }
+            }
+    }
+    
+    private func generateSnapshot() {
+        if let superView = view.superview?.superview {
+            let render = UIGraphicsImageRenderer(size: superView.bounds.size)
+            let image = render.image { _ in
+                superView.drawHierarchy(in: superView.bounds, afterScreenUpdates: true)
+            }
+            onComplete(image)
+        }
+    }
+}
+
+fileprivate struct ViewExtractor: UIViewRepresentable {
+    var view: UIView
+    
+    func makeUIView(context: Context) -> UIView {
+        view.backgroundColor = .clear
+        return view
+    }
+    
+    func updateUIView(_ uiView: UIView, context: Context) {
+        // no process
+    }
+}
+
+extension View {
+    @ViewBuilder
+    fileprivate func snapshot(trigger: Bool, onComplete: @escaping (UIImage) -> ()) -> some View {
+        self.modifier(SnapshotModifier(trigger: trigger, onComplete: onComplete))
+    }
+}
+
+// MARK: - Capture Context Provider
 
 private struct CaptureContextProviderView: UIViewRepresentable {
     @EnvironmentObject private var sdk: AppStorys
@@ -62,7 +160,6 @@ private struct CaptureContextProviderView: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: CaptureContextUIView, context: Context) {
-        // Find the actual content view (not the bridge itself)
         if let contentView = uiView.findActualContentView() {
             sdk.setCaptureContext(contentView)
             Logger.debug("✅ Capture context set: \(type(of: contentView))")
@@ -72,19 +169,15 @@ private struct CaptureContextProviderView: UIViewRepresentable {
     }
 }
 
-// MARK: - ✅ FIXED: View Finder Logic
+// MARK: - Safe View Finder Logic
 
 private class CaptureContextUIView: UIView {
-    
-    /// Find the actual content view (not the bridge's container)
     func findActualContentView() -> UIView? {
         Logger.debug("🔍 Searching for actual content view...")
         
-        // Strategy: Go UP the hierarchy to find content containers
         var currentView: UIView? = self.superview
         var depth = 0
         let maxDepth = 15
-        
         var candidateViews: [(view: UIView, score: Int, depth: Int)] = []
         
         while let view = currentView, depth < maxDepth {
@@ -96,42 +189,34 @@ private class CaptureContextUIView: UIView {
             
             var score = 0
             
-            // ✅ SCORING SYSTEM: Find the best content container
-            
-            // HIGH PRIORITY: Navigation/Tab containers (these hold the actual content)
-            if viewType.contains("UITabBarController") {
-                score += 100
-                Logger.debug("      🎯 TabBarController found!")
-            }
-            if viewType.contains("UINavigationController") {
-                score += 90
-                Logger.debug("      🎯 NavigationController found!")
-            }
-            if viewType.contains("NavigationStackHosting") {
-                score += 85
-                Logger.debug("      🎯 NavigationStackHosting found!")
-            }
-            
-            // MEDIUM PRIORITY: Content views
-            if viewType.contains("HostingController") {
-                score += 70
+            if viewType.contains("HostingView") {
+                score += 80
+                Logger.debug("      🎯 HostingView found!")
             }
             if viewType.contains("PlatformViewHost") && !viewType.contains("CaptureContext") {
-                score += 60
+                score += 70
+                Logger.debug("      🎯 PlatformViewHost found!")
             }
-            if viewType.contains("UIView") && view.subviews.count > 2 {
-                score += 50 // Likely a content container
+            if viewType.contains("UIView") && view.subviews.count > 3 {
+                score += 50
             }
-            
-            // BONUS: View has actual content
             if view.subviews.count > 5 {
                 score += 20
             }
-            
-            // PENALTY: Avoid bridge containers
+            if view.subviews.count > 10 {
+                score += 10
+            }
             if viewType.contains("CaptureContext") {
                 score -= 100
                 Logger.debug("      ⚠️ Skipping bridge container")
+            }
+            if viewType.contains("TabBar") {
+                score -= 50
+                Logger.debug("      ⚠️ Avoiding TabBar view")
+            }
+            if viewType.contains("Controller") {
+                score = 0
+                Logger.debug("      ⚠️ Skipping controller-related view")
             }
             
             if score > 0 {
@@ -142,25 +227,20 @@ private class CaptureContextUIView: UIView {
             depth += 1
         }
         
-        // ✅ Select best candidate
         if let best = candidateViews.max(by: { $0.score < $1.score }) {
             let viewType = String(describing: type(of: best.view))
             Logger.debug("✅ Selected content view: \(viewType) (score: \(best.score), depth: \(best.depth))")
-            return best.view
+            
+            if !viewType.contains("Controller") && !viewType.contains("TabBar") {
+                return best.view
+            } else {
+                Logger.warning("⚠️ Selected view looks unsafe, using fallback")
+            }
         }
         
-        // ✅ Fallback 1: Try UITabBarController directly
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let keyWindow = windowScene.keyWindow,
-           let tabBarController = keyWindow.rootViewController as? UITabBarController {
-            Logger.debug("✅ Using UITabBarController as fallback")
-            return tabBarController.view
-        }
-        
-        // ✅ Fallback 2: Key window
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let keyWindow = windowScene.keyWindow {
-            Logger.warning("⚠️ Using key window as last resort")
+            Logger.warning("⚠️ Using key window as fallback")
             return keyWindow
         }
         
@@ -172,18 +252,6 @@ private class CaptureContextUIView: UIView {
 // MARK: - Public Extension
 
 extension View {
-    /// Track this screen with AppStorys
-    /// - Parameters:
-    ///   - screenName: Name to identify this screen
-    ///   - onCampaignsLoaded: Callback when campaigns are loaded for this screen
-    ///
-    /// ✅ Usage:
-    /// ```swift
-    /// NavigationStack {
-    ///     MyScreenContent()
-    /// }
-    /// .trackAppStorysScreen("My Screen")
-    /// ```
     public func trackAppStorysScreen(
         _ screenName: String,
         onCampaignsLoaded: @escaping ([CampaignModel]) -> Void = { _ in }
@@ -193,4 +261,10 @@ extension View {
             onCampaignsLoaded: onCampaignsLoaded
         ))
     }
+}
+
+// MARK: - Notification Name Extension
+
+extension Notification.Name {
+    static let AppStorysTriggerSnapshot = Notification.Name("AppStorysTriggerSnapshot")
 }
