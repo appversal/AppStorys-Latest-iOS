@@ -15,7 +15,8 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/onevcat/Kingfisher.git", from: "7.12.0")
+        .package(url: "https://github.com/onevcat/Kingfisher.git", from: "7.12.0"),
+        .package(url: "https://github.com/simibac/ConfettiSwiftUI.git", from: "1.1.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -23,10 +24,10 @@ let package = Package(
         .target(
             name: "AppStorys_iOS",
             dependencies: [
-                .product(name: "Kingfisher", package: "Kingfisher")
+                .product(name: "Kingfisher", package: "Kingfisher"),
+                .product(name: "ConfettiSwiftUI", package: "ConfettiSwiftUI"),
             ],
             path: "Sources/AppStorys_iOS"
         ),
-
     ]
 )

@@ -2,39 +2,29 @@
 //  CaptureContextProvider.swift
 //  AppStorys_iOS
 //
-//  Created by Ansh Kalra on 16/10/25.
+//  ✅ FIXED: Properly detects NavigationStack content vs TabView root
 //
-
 
 import SwiftUI
 import UIKit
 
 // MARK: - Capture Context Provider
 
-/// Provides the current UIView for screen capture
 @MainActor
 class CaptureContextProvider: ObservableObject {
     weak var currentView: UIView?
     
     func setView(_ view: UIView) {
         self.currentView = view
-        Logger.debug("📱 Capture context updated: \(type(of: view))")
+        let viewType = String(describing: type(of: view))
+        let frame = view.frame
+        Logger.debug("📱 Capture context updated: \(viewType) frame: \(frame)")
     }
 }
 
 // MARK: - View Extension for Capture Context
 
 extension View {
-    /// Makes this view capturable by providing its UIView to the SDK
-    ///
-    /// Usage:
-    /// ```swift
-    /// var body: some View {
-    ///     YourScreen()
-    ///         .captureContext()  // ← Add this
-    ///         .withAppStorysOverlays()
-    /// }
-    /// ```
     public func captureContext() -> some View {
         background(CaptureContextView())
     }
@@ -53,36 +43,107 @@ private struct CaptureContextView: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: CaptureContextUIView, context: Context) {
-        // Find the hosting view (the actual content view)
-        if let hostingView = uiView.findHostingView() {
-            sdk.setCaptureContext(hostingView)
+        // 🚫 Skip global context updates when no tracked screen is active
+        guard sdk.currentScreen != nil else {
+            if Self.lastLoggedNilContext != true {
+                Logger.debug("🚫 Global CaptureContextProvider skipped — no active tracked screen")
+                Self.lastLoggedNilContext = true
+            }
+            return
+        }
+
+        // ✅ Allow only active tracked screens to set context
+        Self.lastLoggedNilContext = false
+        if let contentView = uiView.findActualContentView() {
+            sdk.setCaptureContext(contentView)
+            Logger.debug("✅ Capture context set: \(type(of: contentView))")
+        } else {
+            Logger.warning("⚠️ Could not find content view for capture context")
         }
     }
+
+    private static var lastLoggedNilContext: Bool?
+
 }
 
 private class CaptureContextUIView: UIView {
-    /// Find the SwiftUI hosting view (the actual content container)
-    func findHostingView() -> UIView? {
-        // Traverse up to find the hosting controller's view
-        var currentView: UIView? = self.superview
-        
-        while let view = currentView {
-            // Check if this is a hosting view (contains actual content)
-            let viewType = String(describing: type(of: view))
-            
-            if viewType.contains("HostingView") ||
-               viewType.contains("UIHostingController") {
-                Logger.debug("✅ Found hosting view: \(viewType)")
-                return view
-            }
-            
-            currentView = view.superview
+    /// Find the actual visible content view
+    func findActualContentView() -> UIView? {
+        Logger.debug("🔍 Searching for actual content view (hybrid Tab + Nav deep mode)...")
+
+        // ✅ Find key window
+        guard let window = self.window ?? UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows })
+            .first(where: \.isKeyWindow) else {
+            Logger.warning("⚠️ No window available")
+            return nil
         }
-        
-        // Fallback: use the direct superview
-        Logger.warning("⚠️ No hosting view found, using superview")
-        return self.superview
+
+        var bestCandidate: UIView?
+
+        // MARK: - Recursive traversal to find best HostingView
+        func traverse(_ view: UIView, depth: Int = 0) {
+            guard depth < 25 else { return }
+            let viewType = String(describing: type(of: view))
+
+            // Skip irrelevant wrappers
+            if viewType.contains("CaptureContext")
+                || viewType.contains("UIViewControllerWrapper")
+                || viewType.contains("TransitionView")
+                || viewType.contains("Controller") {
+                return
+            }
+
+            // ✅ Detect HostingView with visible tagged elements
+            if viewType.contains("HostingView"),
+               !viewType.contains("TabBar"),
+               view.bounds.height > 100,
+               view.containsTaggedElement() {
+                Logger.debug("🎯 Leaf HostingView candidate: \(viewType) with tagged content ✅")
+                bestCandidate = view
+            }
+
+            // ✅ Detect Tab-based HostingView (bottom tabs)
+            if viewType.contains("HostingView"),
+               view.superview?.description.contains("UIKitAdaptableTabView") == true {
+                Logger.debug("🎯 Tab HostingView candidate: \(viewType)")
+                bestCandidate = view
+            }
+
+            // Recurse
+            for sub in view.subviews {
+                traverse(sub, depth: depth + 1)
+            }
+        }
+
+        traverse(window)
+
+        // MARK: - Pick best candidate or fallback
+        if let best = bestCandidate {
+            if best.window != nil, best.containsTaggedElement() {
+                Logger.info("🎯 Selected content view for capture: \(type(of: best)) frame:\(best.frame)")
+                return best
+            } else if let visibleSub = best.findVisibleHostingDescendant() {
+                Logger.info("🎯 Using visible descendant HostingView for capture: \(type(of: visibleSub)) frame:\(visibleSub.frame)")
+                return visibleSub
+            } else {
+                Logger.warning("⚠️ Best candidate not visible — falling back to window")
+                return window
+            }
+        }
+
+        // ✅ Deep fallback to the deepest visible HostingView
+        if let fallback = window.deepestHostingView() {
+            Logger.warning("⚠️ Using deepest HostingView as fallback: \(type(of: fallback)) frame:\(fallback.frame)")
+            return fallback
+        }
+
+        Logger.error("❌ No suitable content view found, returning window")
+        return window
     }
+
+
 }
 
 // MARK: - AppStorys Extension
@@ -90,64 +151,118 @@ private class CaptureContextUIView: UIView {
 extension AppStorys {
     private static var captureContext: CaptureContextProvider = CaptureContextProvider()
     
-    /// Set the current view for capture
     func setCaptureContext(_ view: UIView) {
         Self.captureContext.currentView = view
     }
     
-    /// Get the current capturable view
     func getCaptureView() throws -> UIView {
-        // Try context view first
         if let contextView = Self.captureContext.currentView {
-            Logger.debug("📸 Using context view: \(type(of: contextView))")
+            let viewType = String(describing: type(of: contextView))
+            Logger.debug("📸 Using context view: \(viewType)")
             return contextView
         }
         
-        // Fallback to key window
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = scene.keyWindow ?? scene.windows.first else {
             Logger.error("❌ No window available for capture")
             throw ScreenCaptureError.noActiveScreen
         }
         
-        Logger.warning("⚠️ Using fallback window capture - add .captureContext() to your view!")
+        Logger.warning("⚠️ Using fallback window - add .captureContext() to your NavigationStack content!")
         return window
     }
-    
-    /// Updated capture method using context
-    public func captureScreen() async throws {
-        guard isInitialized else {
-            throw AppStorysError.notInitialized
-        }
-        
-        guard isScreenCaptureEnabled else {
-            Logger.warning("⚠️ Screen capture is disabled by server")
-            throw ScreenCaptureError.featureDisabled
-        }
-        
-        guard let manager = screenCaptureManager else {
-            Logger.error("❌ Screen capture manager not initialized")
-            throw ScreenCaptureError.managerNotInitialized
-        }
-        
-        guard let userId = currentUserID else {
-            throw AppStorysError.notInitialized
-        }
-        
-        guard let screenName = currentScreen else {
-            Logger.warning("⚠️ No active screen to capture")
-            throw ScreenCaptureError.noActiveScreen
-        }
-        
-        // ✅ Get the CURRENT view, not root window
-        let view = try getCaptureView()
-        
-        Logger.info("📸 Capturing screen: \(screenName) from \(type(of: view))")
-        
-        try await manager.captureAndUpload(
-            screenName: screenName,
-            userId: userId,
-            rootView: view
-        )
+
+    /// ✅ Add this public accessor
+    var captureContextProvider: CaptureContextProvider {
+        return Self.captureContext
     }
+    
+    func clearCaptureContext() {
+        Self.captureContext.currentView = nil
+        Logger.info("🧹 Capture context cleared — no active tracked view")
+    }
+    func isScreenCurrentlyVisible(_ name: String) -> Bool {
+        return captureContextProvider.currentView != nil && currentScreen == name
+    }
+
+
+}
+
+
+// MARK: - 🔍 Debug Helper: Dump Entire View Hierarchy
+extension UIView {
+    func dumpHierarchy(
+        depth: Int = 0,
+        prefix: String = ""
+    ) {
+        let indent = String(repeating: "  ", count: depth)
+        let viewType = String(describing: type(of: self))
+        let frameString = "(\(Int(frame.origin.x)), \(Int(frame.origin.y)), \(Int(frame.width)), \(Int(frame.height)))"
+        let id = accessibilityIdentifier ?? "nil"
+        Logger.debug("\(indent)• \(prefix)\(viewType)  id:\(id)  frame:\(frameString)  alpha:\(alpha)  window:\(window != nil ? "✅" : "❌")")
+
+        // Avoid infinite recursion for huge trees
+        guard depth < 25 else {
+            Logger.debug("\(indent)  … (depth limit reached)")
+            return
+        }
+
+        for (index, sub) in subviews.enumerated() {
+            sub.dumpHierarchy(depth: depth + 1, prefix: "[\(index)] ")
+        }
+    }
+}
+
+// MARK: - UIView Utilities
+private extension UIView {
+
+    /// Finds visible HostingView deeper in hierarchy (attached to window and containing tags)
+    func findVisibleHostingDescendant() -> UIView? {
+        var candidate: UIView?
+
+        func recurse(_ view: UIView) {
+            let typeName = String(describing: type(of: view))
+            if typeName.contains("HostingView"),
+               view.window != nil,
+               view.containsTaggedElement() {
+                candidate = view
+            }
+            for sub in view.subviews {
+                recurse(sub)
+            }
+        }
+
+        recurse(self)
+        return candidate
+    }
+
+    /// Checks recursively if any subview contains an AppStorys tag
+    func containsTaggedElement() -> Bool {
+        if let id = accessibilityIdentifier,
+           id.starts(with: "APPSTORYS_") {
+            return true
+        }
+        for sub in subviews where sub.containsTaggedElement() {
+            return true
+        }
+        return false
+    }
+
+    /// Fallback: returns the deepest visible HostingView
+    func deepestHostingView() -> UIView? {
+        var result: UIView?
+        func dive(_ view: UIView) {
+            if String(describing: type(of: view)).contains("HostingView"),
+               view.window != nil {
+                result = view
+            }
+            for sub in view.subviews {
+                dive(sub)
+            }
+        }
+        dive(self)
+        return result
+    }
+    
+    
 }

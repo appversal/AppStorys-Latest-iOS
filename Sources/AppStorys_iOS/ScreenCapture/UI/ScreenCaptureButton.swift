@@ -2,10 +2,11 @@
 //  ScreenCaptureButton.swift
 //  AppStorys_iOS
 //
-//  Enhanced with better positioning and styling
+//  Enhanced with confetti celebration on successful capture
 //
 
 import SwiftUI
+import ConfettiSwiftUI
 
 public struct ScreenCaptureButton: View {
     let onCapture: () async throws -> Void
@@ -13,6 +14,7 @@ public struct ScreenCaptureButton: View {
     @State private var isCapturing = false
     @State private var showSuccess = false
     @State private var errorMessage: String?
+    @State private var confettiTrigger = 0
     
     // Positioning
     private let position: Position
@@ -70,6 +72,9 @@ public struct ScreenCaptureButton: View {
         }
         .disabled(isCapturing)
         .opacity(isCapturing ? 0.6 : 1.0)
+        .confettiCannon(
+            counter: $confettiTrigger
+        )
         .alert("Capture Failed", isPresented: .constant(errorMessage != nil)) {
             Button("OK") { errorMessage = nil }
             Button("Retry") {
@@ -92,6 +97,7 @@ public struct ScreenCaptureButton: View {
         } else if showSuccess {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.white)
+                .symbolEffect(.bounce, value: showSuccess)
         } else {
             Image(systemName: "camera.fill")
                 .foregroundStyle(.white)
@@ -112,28 +118,62 @@ public struct ScreenCaptureButton: View {
     private func capture() async {
         isCapturing = true
         errorMessage = nil
-        
+
         do {
-            try await onCapture()
+            // ✅ Validate screen tracking first
+            let sdk = AppStorys.shared
             
-            await MainActor.run {
-                showSuccess = true
+            guard let currentScreen = sdk.currentScreen else {
+                throw ScreenCaptureError.noActiveScreen
             }
             
-            try await Task.sleep(nanoseconds: 1_500_000_000)
+            guard sdk.captureContextProvider.currentView != nil else {
+                throw ScreenCaptureError.noActiveScreenContext
+            }
+            if !sdk.isScreenCurrentlyVisible(currentScreen) {
+                throw ScreenCaptureError.screenMismatch
+            }
+            Logger.info("📸 Triggering capture for tracked screen: \(currentScreen)")
             
+            // ✅ Proceed with actual capture
+            try await onCapture()
+
+            await MainActor.run {
+                showSuccess = true
+                confettiTrigger += 1
+                Logger.info("🎉 Screen capture successful - confetti triggered!")
+            }
+
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+
             await MainActor.run {
                 showSuccess = false
             }
+
+        } catch let error as ScreenCaptureError {
+            await MainActor.run {
+                switch error {
+                case .noActiveScreen:
+                    errorMessage = "No tracked screen found. Please ensure this view uses .trackAppStorysScreen()"
+                case .noActiveScreenContext:
+                    errorMessage = "No capture context available. Make sure .trackAppStorysScreen() is applied correctly."
+                default:
+                    errorMessage = error.localizedDescription
+                }
+                Logger.error("❌ Capture aborted - \(errorMessage ?? "Unknown reason")")
+            }
+
         } catch {
             await MainActor.run {
                 errorMessage = error.localizedDescription
                 Logger.error("❌ Capture failed", error: error)
             }
+
         }
-        
+
         await MainActor.run {
             isCapturing = false
         }
     }
+
 }

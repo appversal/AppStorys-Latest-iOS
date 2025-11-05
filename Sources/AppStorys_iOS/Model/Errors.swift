@@ -58,7 +58,9 @@ public enum ScreenCaptureError: Error, LocalizedError {
     case invalidResponse
     case serverError(Int)
     case rateLimitExceeded
-    
+    case noActiveScreenContext
+    case screenMismatch
+
     public var errorDescription: String? {
         switch self {
         case .featureDisabled:
@@ -77,6 +79,11 @@ public enum ScreenCaptureError: Error, LocalizedError {
             return "Server error: \(code)"
         case .rateLimitExceeded:
             return "Please wait 5 seconds between captures"
+        case .noActiveScreenContext:
+            return "No valid capture context found. Ensure .trackAppStorysScreen() is applied."
+        case .screenMismatch:
+            return "The active view does not match the tracked screen. Ensure .trackAppStorysScreen() is used on the current screen."
+
         }
     }
 }

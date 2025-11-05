@@ -2,6 +2,7 @@
 //  WidgetView.swift
 //  AppStorys_iOS
 //
+//  ✅ ENHANCED: Widgets now auto-tag themselves for screen capture
 //
 
 import SwiftUI
@@ -35,7 +36,7 @@ public struct WidgetView: View {
         details.styling
     }
     
-    // ✅ NEW: Group images into pairs for half-width layout
+    // Group images into pairs for half-width layout
     private var imagePairs: [(first: WidgetImage, second: WidgetImage?)] {
         stride(from: 0, to: images.count, by: 2).map { index in
             let first = images[index]
@@ -44,7 +45,7 @@ public struct WidgetView: View {
         }
     }
     
-    // ✅ NEW: Individual corner radius values
+    // Individual corner radius values
     private var cornerRadii: RectangleCornerRadii {
         RectangleCornerRadii(
             topLeading: radius(from: styling?.topLeftRadius),
@@ -81,6 +82,7 @@ public struct WidgetView: View {
                     alignment: .bottom
                 )
         }
+        // ✅ No automatic tagging - developers tag manually with position
         .padding(.top, marginValue(from: styling?.topMargin))
         .padding(.bottom, marginValue(from: styling?.bottomMargin))
         .padding(.leading, marginValue(from: styling?.leftMargin))
@@ -192,21 +194,12 @@ public struct WidgetView: View {
                 url: URL(string: widgetImage.image),
                 contentMode: .fill,
                 showShimmer: true,
-                cornerRadius: 0, // ✅ No corner radius here - applied at container level
+                cornerRadius: 0,
                 onSuccess: {
                     Logger.debug("✅ Widget image loaded: \(widgetImage.id)")
                 },
                 onFailure: { error in
                     Logger.warning("⚠️ Widget image failed: \(widgetImage.id)")
-//                    Task {
-//                        await trackEvent(
-//                            name: "image_load_failed",
-//                            metadata: [
-//                                "widget_image": widgetImage.id,
-//                                "error": error.localizedDescription
-//                            ]
-//                        )
-//                    }
                 }
             )
             .clipShape(UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous))
@@ -442,7 +435,7 @@ public struct WidgetView: View {
         guard let s = string?.trimmingCharacters(in: .whitespacesAndNewlines),
               !s.isEmpty,
               let doubleVal = Double(s) else {
-            return 0 // Default radius
+            return 0
         }
         return CGFloat(doubleVal)
     }
