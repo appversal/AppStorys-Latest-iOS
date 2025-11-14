@@ -107,8 +107,7 @@ struct AppStorysOverlayModifier: ViewModifier {
                     campaignId: campaign.id,
                     details: details
                 )
-                .presentationCornerRadius(cornerRadiusValue(details))
-                .presentationBackground(.black.opacity(0.001))
+                .presentationBackground(.clear)
             } else {
                 Text("Invalid campaign type")
                     .presentationDetents([.height(100)])
@@ -159,7 +158,21 @@ struct AppStorysOverlayModifier: ViewModifier {
             .zIndex(1000)
             .id(pipCampaign.id)
         }
-
+        
+        // Modal Overlay
+        if showModal,
+           let modalCampaign = sdk.activeModalCampaign,
+           case let .modal(details) = modalCampaign.details {
+            ModalView(
+                sdk: sdk,  // ✅ CRITICAL: Pass SDK directly
+                campaignId: modalCampaign.id,
+                details: details
+            )
+            .transition(.opacity.combined(with: .scale))
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: modalCampaign.id)
+            .zIndex(1500)
+        }
+        
         // ✅ Tooltip Overlay (reactive + crash-safe)
         if showTooltip,
            sdk.isInitialized,

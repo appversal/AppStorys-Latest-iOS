@@ -5,7 +5,6 @@
 //  Created by Ansh Kalra on 08/10/25.
 //
 
-
 import Foundation
 
 public struct CsatDetails: Codable, Sendable {
