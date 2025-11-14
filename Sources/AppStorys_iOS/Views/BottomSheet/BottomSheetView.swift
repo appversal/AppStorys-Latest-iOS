@@ -51,54 +51,56 @@ public struct BottomSheetView: View {
         // Bottom sheet content
         VStack(spacing: 0) {
             Spacer()
-            
-            VStack(spacing: 0) {
                 
                 // Dynamic content elements
-                    VStack(spacing: 0) {
-                        // 🖼️ Image elements (no background)
-                        ForEach(sortedElements, id: \.id) { element in
-                            if element.type == "image" {
-                                elementView(for: element)
-                            }
+                VStack(spacing: 0) {
+                    // 🖼️ Image elements (no background)
+                    ForEach(sortedElements, id: \.id) { element in
+                        if element.type == "image" {
+                            elementView(for: element)
                         }
-
-                        // ✅ Body + CTA group with background
-                        VStack(spacing: 0) {
-                            ForEach(sortedElements.filter { ["body", "cta"].contains($0.type) }, id: \.id) { element in
-                                elementView(for: element)
-                            }
-                        }
-                        .padding(.bottom, 20)
-                        .background(
-                            Rectangle()
-                                .fill(backgroundColor(
-                                    sortedElements.first(where: { $0.type == "body" })?.bodyBackgroundColor
-                                ))
-                        )
                     }
-            }
-            .background(
-                Rectangle()
-                    .fill(.clear)
-                    .onTapGesture {
-                        handleDismiss()
-                    })
+                    // ✅ Body + CTA group with background
+                    Group {
+                        let bodyCTAElements = sortedElements.filter { ["body", "cta"].contains($0.type) }
+                        
+                        if !bodyCTAElements.isEmpty {
+                            VStack(spacing: 0) {
+                                ForEach(bodyCTAElements, id: \.id) { element in
+                                    elementView(for: element)
+                                }
+                            }
+                            .padding(.bottom, 20)
+                            .background(
+                                Rectangle()
+                                    .fill(backgroundColor(
+                                        sortedElements.first(where: { $0.type == "body" })?.bodyBackgroundColor
+                                    ))
+                            )
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
                 Group{
                     if showCloseButton {
                         closeButton
                     }
                 }
-                    .offset(y: -32)
                 ,alignment: .topLeading
             )
-
+            
             .offset(y: isPresented ? 0 : UIScreen.main.bounds.height)
         }
-        .ignoresSafeArea(edges: .bottom)
+        .background(
+            Rectangle()
+                .fill(.clear)
+                .onTapGesture {
+                    handleDismiss()
+                })
+        
+        .ignoresSafeArea()
         .onAppear {
             animateIn()
             trackViewIfNeeded()
@@ -125,11 +127,11 @@ public struct BottomSheetView: View {
                     .frame(width: 32, height: 32)
                     .background(
                         Circle()
-                            .fill(Color(.systemGray5))
+                            .fill(.thinMaterial)
                     )
             }
-            .padding(.top, 16)
-            .padding(.trailing, 16)
+            .padding(.top)
+            .padding(.trailing, 8)
         }
     }
     
@@ -153,29 +155,29 @@ public struct BottomSheetView: View {
     
     @ViewBuilder
     private func imageElement(_ element: BottomSheetElement) -> some View {
-        Button(action: {
-            handleImageTap(element)
-        }) {
-            AppStorysImageView(
-                url: URL(string: element.url ?? ""),
-                contentMode: .fill,
-                showShimmer: true,
-                cornerRadius: 0,
-                onSuccess: {
-                    Logger.debug("✅ Bottom sheet image loaded")
-                },
-                onFailure: { error in
-                    Logger.warning("⚠️ Bottom sheet image failed: \(error.localizedDescription)")
-                }
-            )
-            .aspectRatio(contentMode: .fit)
-        }
-        .buttonStyle(.plain)
-        .disabled(element.imageLink == nil || element.imageLink?.isEmpty == true)
+        NormalImageView(
+            url: URL(string: element.url ?? ""),
+            contentMode: .fit,
+            showShimmer: true,
+            cornerRadius: 0,
+            onSuccess: {
+                Logger.debug("✅ Bottom sheet image loaded")
+            },
+            onFailure: { error in
+                Logger.warning("⚠️ Bottom sheet image failed: \(error.localizedDescription)")
+            }
+        )
+        .aspectRatio(contentMode: .fit)
         .padding(.top, paddingValueOrZero(element.paddingTop))
         .padding(.bottom, paddingValueOrZero(element.paddingBottom))
         .padding(.leading, paddingValue(element.paddingLeft))
         .padding(.trailing, paddingValue(element.paddingRight))
+        .contentShape(Rectangle()) // Makes entire area tappable
+        .onTapGesture {
+            if element.imageLink != nil && element.imageLink?.isEmpty == false {
+                handleImageTap(element)
+            }
+        }
     }
     
     // MARK: - Body Element
@@ -347,8 +349,6 @@ public struct BottomSheetView: View {
             metadata: metadata
         )
     }
-    
-    // MARK: - Style Helpers
     
     // MARK: - Padding Helpers
 
