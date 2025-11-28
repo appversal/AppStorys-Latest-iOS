@@ -22,21 +22,23 @@ public struct ModalDetails: Codable, Sendable {
 // MARK: - Modal Item
 
 public struct ModalItem: Codable, Sendable, Identifiable {
-    public var id: String { name } // Use name as unique identifier
+    // ✅ Generate stable ID from URL or lottieData
+    public var id: String {
+        url ?? lottieData ?? UUID().uuidString
+    }
     
     let backgroundOpacity: StringOrInt?
     let borderRadius: StringOrInt?
     let link: String?
-    let name: String
     let redirection: RedirectionConfig?
     let size: StringOrInt?
     let url: String?
-    let lottieData: String?  // ✅ NEW: Lottie animation URL
+    let lottieData: String?
     
     enum CodingKeys: String, CodingKey {
-        case backgroundOpacity, borderRadius, link, name
+        case backgroundOpacity, borderRadius, link
         case redirection, size, url
-        case lottieData = "lottie_data"  // ✅ Maps to snake_case from backend
+        case lottieData = "lottie_data"
     }
     
     // MARK: - Computed Properties
@@ -58,7 +60,6 @@ public struct ModalItem: Codable, Sendable, Identifiable {
         return URL(string: URLHelper.sanitizeURL(urlString) ?? urlString)
     }
     
-    // ✅ NEW: Lottie URL computed property
     var lottieURL: URL? {
         guard let urlString = lottieData else { return nil }
         return URL(string: urlString)

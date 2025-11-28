@@ -100,6 +100,7 @@ public class AppStorys: ObservableObject {
     private var webSocketClient: WebSocketClient?
     private var campaignManager: CampaignManager?
     private var pendingEventManager = PendingEventManager()
+    private var cachedDeviceAttributes: [String: AnyCodable]?
     var screenCaptureManager: ScreenCaptureManager?
     
     // âœ… TOOLTIP SUPPORT
@@ -175,7 +176,8 @@ public class AppStorys: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             self?.elementRegistry.invalidateCache()
-            Logger.debug("ðŸ“± Orientation changed - invalidated element cache")
+            self?.invalidateDeviceAttributesCache()  // ✅ NEW
+            Logger.debug("📱 Orientation changed - invalidated element cache")
         }
         
         NotificationCenter.default.addObserver(
@@ -206,11 +208,14 @@ public class AppStorys: ObservableObject {
     }
     
     @objc private func handleAppWillEnterForeground() {
-        Logger.info("â˜€ï¸  App returning to foreground")
+        Logger.info("☀️ App returning to foreground")
         
-        // âœ… Re-fetch current screen (campaigns stay visible during fetch)
+        // ✅ Invalidate device attributes cache (OS version might have changed, etc.)
+        invalidateDeviceAttributesCache()
+        
+        // ✅ Re-fetch current screen (campaigns stay visible during fetch)
         if let currentScreen = currentScreen {
-            Logger.info("ðŸ”„ Re-fetching campaigns for \(currentScreen) after foreground")
+            Logger.info("🔄 Re-fetching campaigns for \(currentScreen) after foreground")
             trackScreen(currentScreen)
         }
         
@@ -475,10 +480,146 @@ public class AppStorys: ObservableObject {
         }
     }
     
-    public func setUserAttributes(_ attributes: [String: Any]) {
+    // MARK: - User Attributes Management
+
+    /// Updates user attributes and syncs to backend
+    /// ✅ Stores locally for immediate use in events
+    /// ✅ Persists to backend for campaign targeting
+    /// - Parameter attributes: Dictionary of user attributes
+    /// - Throws: AppStorysError if sync fails (but attributes are still stored locally)
+    public func setUserAttributes(_ attributes: [String: Any]) async throws {
+        // 1️⃣ Store locally first (immediate availability)
         self.userAttributes = attributes.mapValues { AnyCodable($0) }
-        Logger.debug("User attributes updated: \(attributes.keys.joined(separator: ", "))")
+        Logger.debug("📝 User attributes stored locally: \(attributes.keys.joined(separator: ", "))")
+        
+        guard isInitialized, let userID = currentUserID else {
+            Logger.warning("⚠️ SDK not initialized - attributes queued for sync")
+            // Queue for later
+            await pendingEventManager.savePendingUserAttributes(
+                self.userAttributes,
+                userId: currentUserID ?? ""
+            )
+            return
+        }
+        
+        // 2️⃣ Check network connectivity
+        let isOnline = await checkNetworkConnectivity()
+        
+        if !isOnline {
+            Logger.warning("⚠️ Offline - attributes queued for sync")
+            await pendingEventManager.savePendingUserAttributes(
+                self.userAttributes,
+                userId: userID
+            )
+            return
+        }
+        
+        // 3️⃣ Sync to backend
+        do {
+            try await updateUserAttributesOnBackend(userID: userID, attributes: attributes)
+            Logger.info("✅ User attributes synced to backend")
+            
+            // Clear any pending attributes
+            await pendingEventManager.clearPendingUserAttributes()
+            
+        } catch {
+            Logger.error("❌ Failed to sync user attributes to backend", error: error)
+            
+            // Queue for retry
+            await pendingEventManager.savePendingUserAttributes(
+                self.userAttributes,
+                userId: userID
+            )
+            
+            // Don't throw - attributes are still stored locally
+            throw error
+        }
     }
+
+    /// Synchronous version for backward compatibility
+    /// Use the async version when possible
+    public func setUserAttributes(_ attributes: [String: Any]) {
+        Task {
+            try? await setUserAttributes(attributes)
+        }
+    }
+
+    private func updateUserAttributesOnBackend(
+        userID: String,
+        attributes: [String: Any]
+    ) async throws {
+        guard let baseURL = config?.baseURL else {
+            throw AppStorysError.notInitialized
+        }
+
+        let urlString = "\(baseURL)/update-user-atr"
+        guard let url = URL(string: urlString) else {
+            throw AppStorysError.invalidURL
+        }
+
+        // 1️⃣ Fetch token BEFORE creating the request (so timeout doesn’t affect it)
+        guard let authManager = authManager else {
+            throw AppStorysError.notInitialized
+        }
+        let token = try await authManager.getAccessToken()
+
+        // 2️⃣ Build request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 40     // Increased timeout
+
+        let requestBody: [String: Any] = [
+            "user_id": userID,
+            "attributes": attributes
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        Logger.debug("📤 POST \(urlString)")
+        if let bodyString = String(data: request.httpBody!, encoding: .utf8) {
+            Logger.debug("📦 Request Body: \(bodyString)")
+        }
+
+        // 3️⃣ Add RETRY logic for timeouts
+        for attempt in 1...2 {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw AppStorysError.invalidResponse
+                }
+
+                Logger.debug("📥 Response: \(httpResponse.statusCode)")
+
+                // Accept 2xx success
+                guard (200...299).contains(httpResponse.statusCode) else {
+                    if let responseString = String(data: data, encoding: .utf8) {
+                        Logger.error("❌ Server error response: \(responseString)")
+                    }
+                    throw AppStorysError.serverError(httpResponse.statusCode)
+                }
+
+                if httpResponse.statusCode == 204 {
+                    Logger.debug("✅ Success (204 No Content)")
+                } else if let responseString = String(data: data, encoding: .utf8),
+                          !responseString.isEmpty {
+                    Logger.debug("✅ Server response: \(responseString)")
+                }
+
+                return   // SUCCESS — exit
+
+            } catch {
+                if let urlError = error as? URLError,
+                   urlError.code == .timedOut,
+                   attempt < 2 {
+                    Logger.warning("⏳ Timeout on attempt \(attempt). Retrying…")
+                    continue
+                }
+                throw error
+            }
+        }
+    }
+
     
     func cancelActiveScreenRequest() {
         if let active = activeScreenRequest {
@@ -733,7 +874,7 @@ public class AppStorys: ObservableObject {
         metadata: [String: Any]? = nil
     ) async {
         guard isInitialized, let userID = currentUserID else {
-            Logger.warning("âš ï¸  SDK not initialized, queuing event")
+            Logger.warning("⚠️ SDK not initialized, queuing event")
             await pendingEventManager.save(
                 campaignId: campaignId,
                 event: eventType,
@@ -744,14 +885,18 @@ public class AppStorys: ObservableObject {
         
         let isSystemEvent = systemEvents.contains(eventType)
         
-        if !isSystemEvent {
-            addTrackedEvent(eventType)
-            Logger.debug("Added custom event '\(eventType)' to tracked events")
-        } else {
+        // ✅ Build metadata - include device attributes ONLY for custom events
+        let completeMetadata: [String: AnyCodable]?
+        if isSystemEvent {
+            // System events: use metadata as-is (no device attributes)
+            completeMetadata = metadata?.mapValues { AnyCodable($0) }
             Logger.debug("Tracking system event: \(eventType)")
+        } else {
+            // Custom events: merge device attributes + user metadata
+            completeMetadata = buildEnrichedMetadata(userProvided: metadata)
+            addTrackedEvent(eventType)
+            Logger.debug("Added custom event '\(eventType)' to tracked events (with device context)")
         }
-        
-        let metadataCopy: [String: AnyCodable]? = metadata?.mapValues { AnyCodable($0) }
         
         let taskKey = "\(campaignId)-\(eventType)"
         eventTrackingTasks[taskKey]?.cancel()
@@ -769,7 +914,7 @@ public class AppStorys: ObservableObject {
                     campaignID: campaignId,
                     userID: userID,
                     event: eventType,
-                    metadata: metadataCopy
+                    metadata: completeMetadata
                 )
                 
                 Logger.debug("Event tracked: \(eventType) for campaign: \(campaignId)")
@@ -780,13 +925,59 @@ public class AppStorys: ObservableObject {
                 await pendingEventManager.save(
                     campaignId: campaignId,
                     event: eventType,
-                    metadata: metadataCopy
+                    metadata: completeMetadata
                 )
             }
             await MainActor.run {
                 eventTrackingTasks.removeValue(forKey: taskKey)
             }
         }
+    }
+
+    // MARK: - ✅ NEW: Metadata Enrichment
+
+    /// Build enriched metadata for custom events only
+    private func buildEnrichedMetadata(userProvided: [String: Any]?) -> [String: AnyCodable] {
+        var enriched: [String: AnyCodable] = [:]
+        
+        // 1️⃣ Device attributes (base layer)
+        let deviceAttrs = getDeviceAttributes()
+        for (key, value) in deviceAttrs {
+            enriched[key] = value
+        }
+        
+        // 2️⃣ User-defined attributes from setUserAttributes()
+        for (key, value) in userAttributes {
+            enriched[key] = value
+        }
+        
+        // 3️⃣ Event-specific metadata (top priority - overwrites everything)
+        if let metadata = userProvided {
+            for (key, value) in metadata {
+                enriched[key] = AnyCodable(value)
+            }
+        }
+        
+        return enriched
+    }
+
+    /// Get cached device attributes (refreshed on orientation change)
+    private func getDeviceAttributes() -> [String: AnyCodable] {
+        if let cached = cachedDeviceAttributes {
+            return cached
+        }
+        
+        let fresh = DeviceInfoProvider.buildAttributes()
+        cachedDeviceAttributes = fresh
+        
+        Logger.debug("📊 Built device attributes cache")
+        return fresh
+    }
+
+    /// Invalidate device attributes cache (call on orientation change, foreground, etc.)
+    private func invalidateDeviceAttributesCache() {
+        cachedDeviceAttributes = nil
+        Logger.debug("🔄 Device attributes cache invalidated")
     }
     
     public func triggerEvent(
@@ -974,10 +1165,27 @@ public class AppStorys: ObservableObject {
     private func retryPendingEvents() async {
         guard isInitialized, let userID = currentUserID else { return }
         
+        // ✅ NEW: Retry pending user attributes FIRST
+        if let pendingAttrs = await pendingEventManager.getPendingUserAttributes() {
+            Logger.info("♻️ Retrying pending user attributes...")
+            
+            do {
+                try await updateUserAttributesOnBackend(
+                    userID: pendingAttrs.userId,
+                    attributes: pendingAttrs.attributes.mapValues { $0.value }
+                )
+                await pendingEventManager.clearPendingUserAttributes()
+                Logger.info("✅ Pending user attributes synced")
+            } catch {
+                Logger.error("❌ Failed to retry user attributes", error: error)
+            }
+        }
+        
+        // Retry pending events
         let pendingEvents = await pendingEventManager.getAll()
         guard !pendingEvents.isEmpty else { return }
         
-        Logger.info("Retrying \(pendingEvents.count) pending events...")
+        Logger.info("♻️ Retrying \(pendingEvents.count) pending events...")
         
         for event in pendingEvents {
             if let campaignId = event.campaignId {
@@ -990,7 +1198,7 @@ public class AppStorys: ObservableObject {
         }
         
         await pendingEventManager.clear()
-        Logger.info("Pending events retry completed")
+        Logger.info("✅ Pending events retry completed")
     }
     
     private func refreshCampaigns() async {
