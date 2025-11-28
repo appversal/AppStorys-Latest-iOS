@@ -4,6 +4,7 @@
 //
 //  ✅ AUTO-WAITS: All methods wait for SDK initialization
 //  ✅ THREAD-SAFE: Properly queued operations
+//  ✅ DEVICE CONTEXT: Automatically includes device attributes for custom events
 //
 
 import SwiftUI
@@ -13,8 +14,11 @@ public extension AppStorys {
     
     // MARK: - Event Triggering (Static Methods)
     
-    /// Triggers a custom AppStorys event
+    /// Triggers a custom AppStorys event with full device context
     /// ✅ Automatically waits for SDK to be ready
+    /// ✅ Includes device attributes (platform, OS version, screen size, etc.)
+    /// ✅ Merges user attributes from setUserAttributes()
+    ///
     /// - Parameters:
     ///   - eventType: Name of the event (e.g., "Loan Approved", "Purchase Completed")
     ///   - metadata: Optional additional data to attach to the event
@@ -22,7 +26,28 @@ public extension AppStorys {
     /// Example:
     /// ```swift
     /// Button("Complete Purchase") {
-    ///     AppStorys.triggerEvent("Purchase Completed", metadata: ["amount": 99.99])
+    ///     AppStorys.triggerEvent("Purchase Completed", metadata: [
+    ///         "amount": 99.99,
+    ///         "currency": "USD"
+    ///     ])
+    /// }
+    /// ```
+    ///
+    /// The backend will receive:
+    /// ```json
+    /// {
+    ///   "event": "Purchase Completed",
+    ///   "metadata": {
+    ///     "amount": 99.99,
+    ///     "currency": "USD",
+    ///     "platform": "ios",
+    ///     "model": "iPhone15,2",
+    ///     "os_version": "17.2",
+    ///     "screen_width_px": 1179,
+    ///     "orientation": "portrait",
+    ///     // ... other device attributes
+    ///     // ... user attributes from setUserAttributes()
+    ///   }
     /// }
     /// ```
     static func triggerEvent(
@@ -41,8 +66,10 @@ public extension AppStorys {
         }
     }
     
-    /// Triggers a campaign-specific event
+    /// Triggers a campaign-specific event with full device context
     /// ✅ Automatically waits for SDK to be ready
+    /// ✅ Includes device attributes + user attributes
+    ///
     /// - Parameters:
     ///   - eventType: Name of the event
     ///   - campaignId: ID of the associated campaign
@@ -50,7 +77,11 @@ public extension AppStorys {
     ///
     /// Example:
     /// ```swift
-    /// AppStorys.triggerEvent("Button Clicked", campaignId: "camp_123")
+    /// AppStorys.triggerEvent(
+    ///     "Button Clicked",
+    ///     campaignId: "camp_123",
+    ///     metadata: ["button_label": "Get Started"]
+    /// )
     /// ```
     static func triggerEvent(
         _ eventType: String,

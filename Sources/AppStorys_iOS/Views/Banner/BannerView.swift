@@ -3,7 +3,7 @@
 //  AppStorys_iOS
 //
 //  Simplified banner campaign view with bottom positioning
-//  ✅ UPDATED: Support for Lottie animations + AppStorysImageView
+//  ✅ UPDATED: Support for Lottie animations + AppStorysImageView + Smart Link Handler
 //
 
 import SwiftUI
@@ -174,15 +174,22 @@ struct BannerView: View {
     // MARK: - Actions
 
     private func handleTap() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        
         Logger.info("🎯 Banner tapped: \(campaignId)")
         
         Task {
-            await trackEvent(name: "clicked", metadata: ["action": "banner_tap"])
+            // Track analytics FIRST
+            let contentType = details.lottieData != nil ? "lottie" : "image"
+            await trackEvent(name: "clicked", metadata: [
+                "action": "banner_tap",
+                "content_type": contentType,
+                "target": details.link ?? "nil"
+            ])
             
-            if let link = details.link, let url = URL(string: link) {
-                await MainActor.run {
-                    UIApplication.shared.open(url)
-                }
+            // Run Smart Link Handler on MainActor
+            await MainActor.run {
+                AppStorys.handleSmartLink(details.link)
             }
         }
     }
@@ -219,7 +226,11 @@ struct BannerView: View {
         eventMetadata["position"] = "bottom"
         eventMetadata["has_close_button"] = details.styling?.enableCloseButton ?? false
         eventMetadata["content_loaded"] = contentLoaded
-        eventMetadata["content_type"] = details.lottieData != nil ? "lottie" : "image"
+        
+        // Only add content_type if not already present (for click events)
+        if eventMetadata["content_type"] == nil {
+            eventMetadata["content_type"] = details.lottieData != nil ? "lottie" : "image"
+        }
         
         await AppStorys.shared.trackEvents(
             eventType: name,
