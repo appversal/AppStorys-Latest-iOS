@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
 
+
 import PackageDescription
 
 let package = Package(
@@ -8,7 +9,6 @@ let package = Package(
         .iOS(.v17)
     ],
     products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "AppStorys_iOS",
             targets: ["AppStorys_iOS"]
@@ -17,15 +17,15 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/onevcat/Kingfisher.git", from: "7.12.0"),
         .package(url: "https://github.com/simibac/ConfettiSwiftUI.git", from: "1.1.0"),
+        .package(url: "https://github.com/airbnb/lottie-ios.git", exact: "4.4.0") // ✅ Lottie
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "AppStorys_iOS",
             dependencies: [
                 .product(name: "Kingfisher", package: "Kingfisher"),
                 .product(name: "ConfettiSwiftUI", package: "ConfettiSwiftUI"),
+                .product(name: "Lottie", package: "lottie-ios") // ✅ Add Lottie product
             ],
             path: "Sources/AppStorys_iOS"
         ),

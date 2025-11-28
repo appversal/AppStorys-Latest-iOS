@@ -3,10 +3,11 @@
 //  AppStorys_iOS
 //
 //  Simplified banner campaign view with bottom positioning
-//  ✅ UPDATED: Using AppStorysImageView + proper corner radius handling
+//  ✅ UPDATED: Support for Lottie animations + AppStorysImageView
 //
 
 import SwiftUI
+import Lottie
 
 struct BannerView: View {
     let campaignId: String
@@ -14,7 +15,7 @@ struct BannerView: View {
     
     @State private var isVisible = true
     @State private var hasTrackedView = false
-    @State private var imageLoaded = false
+    @State private var contentLoaded = false
     
     var body: some View {
         if isVisible {
@@ -40,14 +41,31 @@ struct BannerView: View {
     @ViewBuilder
     private var bannerContent: some View {
         ZStack(alignment: .topTrailing) {
-            if let imageUrlString = details.image, let imageUrl = URL(string: imageUrlString) {
+            // ✅ Priority: Lottie > Image > Placeholder
+            if let lottieUrlString = details.lottieData, let lottieUrl = URL(string: lottieUrlString) {
+                // Show Lottie animation
+                LottieView(url: lottieUrl, contentLoaded: $contentLoaded)
+                    .frame(height: bannerHeight)
+                    .clipShape(
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: topLeftRadius,
+                            bottomLeadingRadius: bottomLeftRadius,
+                            bottomTrailingRadius: bottomRightRadius,
+                            topTrailingRadius: topRightRadius
+                        )
+                    )
+                    .onTapGesture {
+                        handleTap()
+                    }
+            } else if let imageUrlString = details.image, let imageUrl = URL(string: imageUrlString) {
+                // Show static image
                 AppStorysImageView(
                     url: imageUrl,
                     contentMode: .fill,
                     showShimmer: true,
                     cornerRadius: 0,
                     onSuccess: {
-                        imageLoaded = true
+                        contentLoaded = true
                         Logger.info("✅ Banner image loaded: \(campaignId)")
                     },
                     onFailure: { error in
@@ -67,6 +85,7 @@ struct BannerView: View {
                     handleTap()
                 }
             } else {
+                // Show placeholder
                 placeholderView
                     .clipShape(
                         UnevenRoundedRectangle(
@@ -86,14 +105,13 @@ struct BannerView: View {
     }
     
     private var bannerHeight: CGFloat {
-        // Prefer backend-provided height if valid
-        if let h = details.height, h > 0 {
-            // Scale it down proportionally if it looks like a large image (e.g. 3024)
-            // This keeps it visually reasonable on iPhone
-            return CGFloat(h) / UIScreen.main.scale / 3
+        guard let w = details.width, let h = details.height, w > 0 else {
+            return 120
         }
-        // Fallback default
-        return 120
+        
+        let screenWidth = UIScreen.main.bounds.width - (horizontalPadding * 2)
+        let scale = screenWidth / CGFloat(w)
+        return CGFloat(h) * scale
     }
 
     private var placeholderView: some View {
@@ -120,14 +138,13 @@ struct BannerView: View {
     private var horizontalPadding: CGFloat {
         let left = parseMargin(details.styling?.marginLeft) ?? 16
         let right = parseMargin(details.styling?.marginRight) ?? 16
-        return max(left, right) // Use max for symmetrical padding
+        return max(left, right)
     }
     
     private var bottomPadding: CGFloat {
         parseMargin(details.styling?.marginBottom) ?? 60
     }
     
-    // Individual corner radius values from backend
     private var topLeftRadius: CGFloat {
         parseRadius(details.styling?.topLeftRadius) ?? 12
     }
@@ -144,14 +161,14 @@ struct BannerView: View {
         parseRadius(details.styling?.bottomRightRadius) ?? 12
     }
     
-    private func parseMargin(_ value: String?) -> CGFloat? {
-        guard let value = value, let doubleValue = Double(value) else { return nil }
-        return CGFloat(doubleValue)
+    private func parseMargin(_ value: StringOrInt?) -> CGFloat? {
+        guard let value = value else { return nil }
+        return CGFloat(Double(value.stringValue) ?? 0)
     }
-    
-    private func parseRadius(_ value: String?) -> CGFloat? {
-        guard let value = value, let doubleValue = Double(value) else { return nil }
-        return CGFloat(doubleValue)
+
+    private func parseRadius(_ value: StringOrInt?) -> CGFloat? {
+        guard let value = value else { return nil }
+        return CGFloat(Double(value.stringValue) ?? 0)
     }
     
     // MARK: - Actions
@@ -201,12 +218,49 @@ struct BannerView: View {
         var eventMetadata = metadata ?? [:]
         eventMetadata["position"] = "bottom"
         eventMetadata["has_close_button"] = details.styling?.enableCloseButton ?? false
-        eventMetadata["image_loaded"] = imageLoaded
+        eventMetadata["content_loaded"] = contentLoaded
+        eventMetadata["content_type"] = details.lottieData != nil ? "lottie" : "image"
         
         await AppStorys.shared.trackEvents(
             eventType: name,
             campaignId: campaignId,
             metadata: eventMetadata
         )
+    }
+}
+
+// MARK: - Lottie View Helper
+private struct LottieView: UIViewRepresentable {
+    let url: URL
+    @Binding var contentLoaded: Bool
+    
+    func makeUIView(context: Context) -> LottieAnimationView {
+        let animationView = LottieAnimationView()
+        animationView.contentMode = .scaleAspectFill
+        animationView.loopMode = .loop
+        animationView.backgroundBehavior = .pauseAndRestore
+        
+        // Load animation from URL
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                let animation = try JSONDecoder().decode(LottieAnimation.self, from: data)
+                
+                await MainActor.run {
+                    animationView.animation = animation
+                    animationView.play()
+                    contentLoaded = true
+                    Logger.info("✅ Banner Lottie loaded and playing")
+                }
+            } catch {
+                Logger.error("❌ Failed to load Lottie animation", error: error)
+            }
+        }
+        
+        return animationView
+    }
+    
+    func updateUIView(_ uiView: LottieAnimationView, context: Context) {
+        // No updates needed
     }
 }

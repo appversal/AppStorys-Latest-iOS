@@ -2,7 +2,7 @@
 //  AppStorysPIPView.swift
 //  AppStorys_iOS
 //
-//  UPDATED - Simplified mute state with isInitial flag
+//  UPDATED - Fixed isDragging state and expand condition
 //
 
 import SwiftUI
@@ -89,6 +89,13 @@ public struct AppStorysPIPView: View {
         pipDetails?.smallVideo == pipDetails?.largeVideo
     }
     
+    // ✅ NEW: Check if expansion is allowed
+    private var canExpand: Bool {
+        guard let details = pipDetails else { return false }
+        // Can expand if we have a large video OR if using same video
+        return details.largeVideo != nil || useSameVideo
+    }
+    
     // MARK: - Initializer
     public init(
         sdk: AppStorys,
@@ -125,6 +132,7 @@ public struct AppStorysPIPView: View {
                             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: currentScale)
                             .allowsHitTesting(!isExpanded)
                         
+                        // ✅ UPDATED: Only allow tap if can expand
                         Color.clear
                             .frame(
                                 width: isExpanded ? geometry.size.width : videoWidth,
@@ -132,7 +140,7 @@ public struct AppStorysPIPView: View {
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                if !isExpanded && !isDragging {
+                                if !isExpanded && !isDragging && canExpand {
                                     handleExpand()
                                 }
                             }
@@ -157,10 +165,15 @@ public struct AppStorysPIPView: View {
                     .opacity(isExpanded ? expandedDragOpacity : 1.0)
                     .matchedGeometryEffect(id: "pipVideo", in: namespace)
                     .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isExpanded)
-                    .simultaneousGesture(isExpanded ? nil : dragGesture(geometry))
+                    .simultaneousGesture(
+                        (isExpanded || !(pipDetails?.styling?.isMovable ?? false))
+                            ? nil
+                            : dragGesture(geometry)
+                    )
                     .simultaneousGesture(isExpanded ? expandedDragGesture(campaign: campaign) : nil)
+                    // ✅ UPDATED: Only allow tap if can expand
                     .onTapGesture {
-                        if !isExpanded && !isDragging {
+                        if !isExpanded && !isDragging && canExpand {
                             handleExpand()
                         }
                     }
@@ -309,7 +322,8 @@ public struct AppStorysPIPView: View {
             
             Spacer()
             
-            if let link = details.link, let buttonText = details.buttonText {
+            if let link = details.link, let buttonText = details.buttonText,
+               !buttonText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button(action: {
                     handleCTATap(campaign: campaign, link: link)
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -377,14 +391,22 @@ public struct AppStorysPIPView: View {
     }
     
     // MARK: - Gesture Handlers
+    // ✅ FIXED: Always reset isDragging to false at the end
     private func handleDragEnd(value: DragGesture.Value, geometry: GeometryProxy) {
-        isDragging = false
+        guard pipDetails?.styling?.isMovable == true else {
+            isDragging = false
+            return
+        }
         
         let dragDistance = sqrt(pow(value.translation.width, 2) + pow(value.translation.height, 2))
         let isQuickTap = dragDistance < 10
         
         if isQuickTap {
-            handleExpand()
+            isDragging = false
+            // ✅ Only expand if allowed
+            if canExpand {
+                handleExpand()
+            }
             return
         }
         
@@ -403,6 +425,7 @@ public struct AppStorysPIPView: View {
         )
         
         position = snappedPosition
+        isDragging = false  // ✅ FIXED: Reset isDragging here
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
     
@@ -411,6 +434,11 @@ public struct AppStorysPIPView: View {
         velocity: CGSize,
         geometry: GeometryProxy
     ) -> CGPoint {
+        
+        guard pipDetails?.styling?.isMovable == true else {
+            return position   // do not snap, keep fixed
+        }
+
         let safeArea = getSafeArea()
         
         let leftEdge = videoWidth / 2 + padding

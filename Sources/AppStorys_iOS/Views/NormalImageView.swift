@@ -56,16 +56,18 @@ struct NormalImageView: View {
                         loadFailed = true
                         onFailure?(error)
                     }
+                    // ✅ ADD THIS
+                    .cacheOriginalImage()
                     .resizable()
-                    .aspectRatio(contentMode: contentMode)   // ❤️ natural size
+                    .aspectRatio(contentMode: contentMode)
                     .cornerRadius(cornerRadius)
                     .clipped()
-                
             } else {
                 errorView
             }
         }
     }
+
     
     // MARK: - Placeholder View
     @ViewBuilder

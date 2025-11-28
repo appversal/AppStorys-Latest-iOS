@@ -11,6 +11,7 @@ import Foundation
 actor PendingEventManager {
     private let userDefaults = UserDefaults.standard
     private let key = "appstorys_pending_events"
+    private let csatKey = "appstorys_pending_csat_responses"
     
     struct PendingEvent: Codable {
         let campaignId: String?
@@ -18,7 +19,16 @@ actor PendingEventManager {
         let metadata: [String: AnyCodable]?
         let timestamp: Date
     }
-    
+    // ✅ NEW: CSAT-specific pending response
+    struct PendingCsatResponse: Codable {
+        let csatId: String
+        let userId: String
+        let rating: Int
+        let feedbackOption: String?
+        let additionalComments: String?
+        let timestamp: Date
+    }
+
     func save(campaignId: String?, event: String, metadata: [String: AnyCodable]?) {
         var events = getAll()
         events.append(PendingEvent(
@@ -46,4 +56,40 @@ actor PendingEventManager {
         userDefaults.removeObject(forKey: key)
         Logger.info("🗑️ Pending events cleared")
     }
+    
+    func saveCsatResponse(
+           csatId: String,
+           userId: String,
+           rating: Int,
+           feedbackOption: String?,
+           additionalComments: String?
+       ) {
+           var responses = getAllCsatResponses()
+           responses.append(PendingCsatResponse(
+               csatId: csatId,
+               userId: userId,
+               rating: rating,
+               feedbackOption: feedbackOption,
+               additionalComments: additionalComments,
+               timestamp: Date()
+           ))
+           
+           if let data = try? JSONEncoder().encode(responses) {
+               userDefaults.set(data, forKey: csatKey)
+               Logger.info("💾 CSAT response queued for retry")
+           }
+       }
+       
+       func getAllCsatResponses() -> [PendingCsatResponse] {
+           guard let data = userDefaults.data(forKey: csatKey),
+                 let responses = try? JSONDecoder().decode([PendingCsatResponse].self, from: data) else {
+               return []
+           }
+           return responses
+       }
+       
+       func clearCsatResponses() {
+           userDefaults.removeObject(forKey: csatKey)
+           Logger.info("🗑️ Pending CSAT responses cleared")
+       }
 }

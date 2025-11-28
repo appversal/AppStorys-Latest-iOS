@@ -3,6 +3,7 @@
 //  AppStorys_iOS
 //
 //  ✅ SAFE: Crash-proof tooltip observer with dynamic SDK binding
+//  ✅ FIXED: Bottom sheet dismissal with cached ID
 //
 
 import Combine
@@ -31,6 +32,7 @@ final class TooltipObserver: ObservableObject {
 struct AppStorysOverlayModifier: ViewModifier {
     @ObservedObject var sdk: AppStorys
     @StateObject private var tooltipObserver: TooltipObserver
+    @StateObject private var transitionProgress = NavigationTransitionProgressPublisher.shared
 
     let showBanner: Bool
     let showFloater: Bool
@@ -42,10 +44,12 @@ struct AppStorysOverlayModifier: ViewModifier {
     let showStories: Bool
     let showTooltip: Bool
     let showCapture: Bool
+    let showScratch: Bool
     let capturePosition: ScreenCaptureButton.Position
 
     @Namespace private var pipNamespace
     @State private var presentedBottomSheetCampaign: CampaignModel?
+    @State private var cachedSheetId: String?  // ✅ NEW: Cache ID for dismissal
     @State private var hasHandledInitialState = false
     @State private var displayedScreenName: String?
 
@@ -62,6 +66,7 @@ struct AppStorysOverlayModifier: ViewModifier {
         showPIP: Bool = true,
         showStories: Bool = true,
         showTooltip: Bool = true,
+        showScratch: Bool = true,
         showCapture: Bool = true,
         capturePosition: ScreenCaptureButton.Position = .bottomCenter
     ) {
@@ -77,6 +82,7 @@ struct AppStorysOverlayModifier: ViewModifier {
         self.showStories = showStories
         self.showTooltip = showTooltip
         self.showCapture = showCapture
+        self.showScratch = showScratch
         self.capturePosition = capturePosition
     }
 
@@ -89,12 +95,11 @@ struct AppStorysOverlayModifier: ViewModifier {
 
             if sdk.currentScreen != nil {
                 campaignOverlays
+                    .opacity(overlayOpacity) // ✅ Gesture-driven opacity
+                    .animation(.linear(duration: 0.05), value: overlayOpacity) // Smooth 60fps updates
             }
         }
         .animation(.easeInOut, value: sdk.storyPresentationState != nil)
-        .onChange(of: sdk.currentScreen) { oldScreen, newScreen in
-            handleScreenChange(from: oldScreen, to: newScreen)
-        }
         .task {
             await handleInitialBottomSheetState()
         }
@@ -112,6 +117,23 @@ struct AppStorysOverlayModifier: ViewModifier {
                 Text("Invalid campaign type")
                     .presentationDetents([.height(100)])
             }
+        }
+    }
+    
+    private var overlayOpacity: Double {
+        guard transitionProgress.isTransitioning else { return 1.0 }
+        
+        switch transitionProgress.transitionType {
+        case .gesture:
+            // Gesture: opacity follows swipe progress
+            return 1.0 - transitionProgress.progress
+            
+        case .direct:
+            // Direct: simple fade animation
+            return 1.0 - transitionProgress.progress
+            
+        case .none:
+            return 1.0
         }
     }
 
@@ -159,6 +181,15 @@ struct AppStorysOverlayModifier: ViewModifier {
             .id(pipCampaign.id)
         }
         
+        // ✅ Tooltip Overlay (reactive + crash-safe)
+        if showTooltip,
+           sdk.isInitialized,
+           let manager = tooltipObserver.manager {
+
+            TooltipOverlayContainer(manager: manager)
+                .zIndex(3000)
+        }
+        
         // Modal Overlay
         if showModal,
            let modalCampaign = sdk.activeModalCampaign,
@@ -172,14 +203,36 @@ struct AppStorysOverlayModifier: ViewModifier {
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: modalCampaign.id)
             .zIndex(1500)
         }
-        
-        // ✅ Tooltip Overlay (reactive + crash-safe)
-        if showTooltip,
-           sdk.isInitialized,
-           let manager = tooltipObserver.manager {
 
-            TooltipOverlayContainer(manager: manager)
-                .zIndex(3000)
+        // CSAT Overlay
+        if showCSAT,
+           let csatCampaign = sdk.activeCSATCampaign,
+           case let .csat(details) = csatCampaign.details {
+            CSATView(
+                sdk: sdk,
+                campaignId: csatCampaign.id,
+                details: details
+            )
+            .transition(.opacity.combined(with: .scale))
+            .animation(.spring(response: 0.4), value: csatCampaign.id)
+            .zIndex(3200)
+        }
+        
+        // SCRATCH CARD OVERLAY
+        if showScratch,
+           let scratchCampaign = sdk.activeScratchCampaign,
+           case let .scratchCard(details) = scratchCampaign.details {
+
+            ScratchCardView(
+                campaignId: scratchCampaign.id,
+                details: details
+            ) {
+                // Optional: callback when fully scratched
+                Logger.info("🎉 ScratchCard complete for campaign \(scratchCampaign.id)")
+            }
+            .transition(.opacity.combined(with: .scale))
+            .animation(.spring(response: 0.35), value: scratchCampaign.id)
+            .zIndex(2500)   // Above modal / below story
         }
 
         // Capture Button Overlay (safe version)
@@ -196,7 +249,6 @@ struct AppStorysOverlayModifier: ViewModifier {
             .zIndex(999)
             .transition(.scale.combined(with: .opacity))
             .animation(.spring(response: 0.3), value: sdk.isScreenCaptureEnabled)
-            
         }
 
         // Story overlay
@@ -236,62 +288,90 @@ struct AppStorysOverlayModifier: ViewModifier {
         }
     }
 
-
     // MARK: - Handlers
 
-    private func handleScreenChange(from oldScreen: String?, to newScreen: String?) {
-        guard let newScreen = newScreen else { return }
-        if displayedScreenName != newScreen {
-            Logger.debug("🔄 Screen changed in overlay: \(displayedScreenName ?? "nil") → \(newScreen)")
-            displayedScreenName = newScreen
-        }
-    }
-
+    // ✅ UPDATED: Handle initial state + cache ID
     @MainActor
     private func handleInitialBottomSheetState() async {
         guard showBottomSheet, !hasHandledInitialState else { return }
         hasHandledInitialState = true
+        
         if let campaign = sdk.activeBottomSheetCampaign,
            presentedBottomSheetCampaign == nil,
            !sdk.isCampaignDismissed(campaign.id) {
             Logger.debug("📋 Setting initial campaign: \(campaign.id)")
             try? await Task.sleep(nanoseconds: 500_000_000)
             presentedBottomSheetCampaign = campaign
+            cachedSheetId = campaign.id  // ✅ Cache ID
         }
     }
 
+    // ✅ UPDATED: Handle all state transitions + cache ID
     private func handleBottomSheetCampaignChange(from oldCampaign: CampaignModel?, to newCampaign: CampaignModel?) {
         guard showBottomSheet else { return }
+        
         Logger.debug("📋 Campaign changed: \(oldCampaign?.id ?? "nil") → \(newCampaign?.id ?? "nil")")
-
-        if oldCampaign == nil, let newCampaign = newCampaign {
-            guard !sdk.isCampaignDismissed(newCampaign.id) else {
-                Logger.debug("⏭ Campaign \(newCampaign.id) dismissed, skipping")
-                return
+        
+        if let newCampaign = newCampaign {
+            // Check if it's the same campaign being re-triggered
+            if presentedBottomSheetCampaign?.id == newCampaign.id {
+                // 🔄 RE-TRIGGER: Force nil → campaign cycle
+                Logger.debug("🔄 Re-triggering same campaign: \(newCampaign.id)")
+                presentedBottomSheetCampaign = nil
+                // ❌ DON'T clear cache here - let handleSheetDismissal do it
+                
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    presentedBottomSheetCampaign = newCampaign
+                    cachedSheetId = newCampaign.id  // ✅ Update cache
+                    Logger.debug("📋 Re-presented campaign: \(newCampaign.id)")
+                }
+                
+            } else {
+                // ✅ NEW CAMPAIGN: Standard presentation
+                Logger.debug("📋 Presenting new campaign: \(newCampaign.id)")
+                
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    presentedBottomSheetCampaign = newCampaign
+                    cachedSheetId = newCampaign.id  // ✅ Cache ID
+                }
             }
-
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                presentedBottomSheetCampaign = newCampaign
-                Logger.debug("📋 Presenting new campaign after delay: \(newCampaign.id)")
+            
+        } else {
+            // ✅ NO CAMPAIGN: Clear presentation but DON'T clear cache yet
+            if presentedBottomSheetCampaign != nil {
+                Logger.debug("📋 Clearing presented campaign")
+                presentedBottomSheetCampaign = nil
+                // ❌ REMOVED: cachedSheetId = nil
+                // Cache will be cleared in handleSheetDismissal
             }
-        } else if oldCampaign != nil, newCampaign == nil {
-            presentedBottomSheetCampaign = nil
-            Logger.debug("📋 Cleared campaign — sheet dismissed")
         }
     }
 
+    // ✅ FIXED: Use cached ID instead of presentedBottomSheetCampaign
     private func handleSheetDismissal() {
-        guard let campaign = presentedBottomSheetCampaign else { return }
-        Logger.debug("📋 Sheet dismissed by user: \(campaign.id)")
-        Task {
+        guard let campaignId = cachedSheetId else {
+            Logger.warning("⚠️ Sheet dismissed but no cached ID found")
+            return
+        }
+        
+        Logger.debug("📋 Sheet dismissed by user (swipe): \(campaignId)")
+        
+        // ✅ CRITICAL: Synchronous cleanup BEFORE view teardown
+        sdk.dismissCampaign(campaignId)
+        
+        // ✅ Track event asynchronously (survives view teardown)
+        Task.detached(priority: .userInitiated) {
             await sdk.trackEvents(
                 eventType: "dismissed",
-                campaignId: campaign.id,
+                campaignId: campaignId,
                 metadata: ["action": "swipe_dismiss"]
             )
         }
-        sdk.dismissCampaign(campaign.id)
+        
+        // ✅ Clear cache
+        cachedSheetId = nil
     }
 
     private func cornerRadiusValue(_ details: BottomSheetDetails) -> CGFloat {

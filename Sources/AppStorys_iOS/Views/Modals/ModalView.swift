@@ -2,11 +2,11 @@
 //  ModalView.swift
 //  AppStorys_iOS
 //
-//
-//
+//  ✅ ENHANCED: Support for Lottie animations in modals
 //
 
 import SwiftUI
+import Lottie
 
 public struct ModalView: View {
     
@@ -19,6 +19,7 @@ public struct ModalView: View {
     @State private var isVisible = false
     @State private var selectedModalIndex = 0
     @State private var hasTrackedView = false
+    @State private var contentLoaded = false
     
     // Dismiss animation state
     @State private var isDismissing = false
@@ -46,8 +47,7 @@ public struct ModalView: View {
                     .animation(.easeOut(duration: 0.25), value: isDismissing)
                 
                 modalContent(modal)
-                
-                    .frame(width: modal.modalSize, height: modal.modalSize)
+                    .frame(width: modal.modalSize)
                     .clipShape(RoundedRectangle(cornerRadius: modal.cornerRadius, style: .continuous))
                     .overlay(
                         HStack {
@@ -56,15 +56,13 @@ public struct ModalView: View {
                         }
                             .offset(x: 8, y: -20)
                             .opacity(isVisible && !isDismissing ? 1.0 : 0.0)
-                            .animation(.easeInOut(duration: 0.2).delay(0.3), value: isVisible)
-                        
-                        ,alignment: .topLeading
+                            .animation(.easeInOut(duration: 0.2).delay(0.3), value: isVisible),
+                        alignment: .topLeading
                     )
                     .scaleEffect(scaleValue)
                     .opacity(opacityValue)
                     .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isVisible)
                     .animation(.spring(response: 0.3, dampingFraction: 0.9), value: isDismissing)
-                
             }
             .onAppear {
                 handleAppear()
@@ -106,13 +104,27 @@ public struct ModalView: View {
     
     @ViewBuilder
     private func modalContent(_ modal: ModalItem) -> some View {
-        if let imageURL = modal.imageURL {
-            AppStorysImageView(
+        // ✅ Priority: Lottie > Image > Fallback
+        if let lottieURL = modal.lottieURL {
+            // Show Lottie animation
+            ModalLottieView(
+                url: lottieURL,
+                modalName: modal.name,
+                contentLoaded: $contentLoaded
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                handleModalTap(modal)
+            }
+        } else if let imageURL = modal.imageURL {
+            // Show static image
+            NormalImageView(
                 url: imageURL,
-                contentMode: .fill,
+                contentMode: .fit,
                 showShimmer: true,
                 cornerRadius: modal.cornerRadius,
                 onSuccess: {
+                    contentLoaded = true
                     Logger.debug("✅ Modal image loaded: \(modal.name)")
                 },
                 onFailure: { error in
@@ -130,12 +142,11 @@ public struct ModalView: View {
                     }
                 }
             )
-            .contentShape(Rectangle()) // Ensure full tappable area
             .onTapGesture {
                 handleModalTap(modal)
             }
         } else {
-            // Fallback for missing image URL
+            // Fallback for missing content
             fallbackView
         }
     }
@@ -151,7 +162,7 @@ public struct ModalView: View {
                     .font(.system(size: 48))
                     .foregroundColor(.gray.opacity(0.6))
                 
-                Text("Image not available")
+                Text("Content not available")
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.8))
             }
@@ -181,12 +192,16 @@ public struct ModalView: View {
         if !hasTrackedView {
             hasTrackedView = true
             
+            let modal = details.modals[safe: selectedModalIndex]
+            let contentType = modal?.lottieData != nil ? "lottie" : "image"
+            
             Task { [weak sdk] in
                 await sdk?.trackEvents(
                     eventType: "viewed",
                     campaignId: campaignId,
                     metadata: [
-                        "modal_name": details.modals[safe: selectedModalIndex]?.name ?? "unknown",
+                        "modal_name": modal?.name ?? "unknown",
+                        "content_type": contentType,
                         "screen": sdk?.currentScreen ?? "unknown"
                     ]
                 )
@@ -195,7 +210,6 @@ public struct ModalView: View {
         
         // Animate in with slight delay for better perception
         Task {
-//            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
             await MainActor.run {
                 withAnimation {
                     isVisible = true
@@ -207,12 +221,15 @@ public struct ModalView: View {
     }
     
     private func handleModalTap(_ modal: ModalItem) {
-        guard let url = modal.destinationURL else {
-            Logger.warning("⚠️ Modal '\(modal.name)' has no destination URL")
+        // ✅ Get the raw link string (not parsed URL)
+        guard let linkValue = modal.link, !linkValue.isEmpty else {
+            Logger.warning("⚠️ Modal '\(modal.name)' has no link configured")
             return
         }
         
-        Logger.info("🔗 Modal tapped: \(modal.name) → \(url.absoluteString)")
+        Logger.info("🔗 Modal tapped: \(modal.name) → \(linkValue)")
+        
+        let contentType = modal.lottieData != nil ? "lottie" : "image"
         
         // Track click
         Task { [weak sdk] in
@@ -222,13 +239,16 @@ public struct ModalView: View {
                 metadata: [
                     "action": "modal_tap",
                     "modal_name": modal.name,
-                    "url": url.absoluteString
+                    "content_type": contentType,
+                    "content_loaded": contentLoaded,
+                    "link": linkValue
                 ]
             )
         }
         
-        // Open URL
-        UIApplication.shared.open(url)
+        // ✅ Use smart link handler (supports URLs, campaign IDs, and trigger events)
+        AppStorys.handleSmartLink(linkValue)
+        
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         
         // Dismiss after brief delay
@@ -275,6 +295,44 @@ public struct ModalView: View {
     }
 }
 
+// MARK: - Modal Lottie View Helper
+
+private struct ModalLottieView: UIViewRepresentable {
+    let url: URL
+    let modalName: String
+    @Binding var contentLoaded: Bool
+    
+    func makeUIView(context: Context) -> LottieAnimationView {
+        let animationView = LottieAnimationView()
+        animationView.contentMode = .scaleAspectFill
+        animationView.loopMode = .loop
+        animationView.backgroundBehavior = .pauseAndRestore
+        
+        // Load animation from URL
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                let animation = try JSONDecoder().decode(LottieAnimation.self, from: data)
+                
+                await MainActor.run {
+                    animationView.animation = animation
+                    animationView.play()
+                    contentLoaded = true
+                    Logger.info("✅ Modal Lottie loaded: \(modalName)")
+                }
+            } catch {
+                Logger.error("❌ Failed to load modal Lottie: \(modalName)", error: error)
+            }
+        }
+        
+        return animationView
+    }
+    
+    func updateUIView(_ uiView: LottieAnimationView, context: Context) {
+        // No updates needed
+    }
+}
+
 // MARK: - Safe Array Subscript
 
 private extension Array {
@@ -286,31 +344,32 @@ private extension Array {
 // MARK: - Preview Support
 
 #if DEBUG
-struct ModalView_Previews: PreviewProvider {
-    static var previews: some View {
-        let mockSDK = AppStorys.shared
-        
-        let mockDetails = ModalDetails(
-            id: "preview-id",
-            modals: [
-                ModalItem(
-                    backgroundOpacity: "0.7",
-                    borderRadius: "24",
-                    link: "https://example.com",
-                    name: "Preview Modal",
-                    redirection: nil,
-                    size: "300",
-                    url: "https://picsum.photos/300/300"
-                )
-            ],
-            name: "Preview"
-        )
-        
-        ModalView(
-            sdk: mockSDK,
-            campaignId: "preview-campaign",
-            details: mockDetails
-        )
-    }
-}
+//struct ModalView_Previews: PreviewProvider {
+//    static var previews: some View {
+//        let mockSDK = AppStorys.shared
+//        
+//        let mockDetails = ModalDetails(
+//            id: "preview-id",
+//            modals: [
+//                ModalItem(
+//                    backgroundOpacity: "0.7",
+//                    borderRadius: "24",
+//                    link: "https://example.com",
+//                    name: "Preview Modal",
+//                    redirection: nil,
+//                    size: "300",
+//                    url: "https://picsum.photos/300/300",
+//                    lottieData: nil
+//                )
+//            ],
+//            name: "Preview"
+//        )
+//        
+//        ModalView(
+//            sdk: mockSDK,
+//            campaignId: "preview-campaign",
+//            details: mockDetails
+//        )
+//    }
+//}
 #endif

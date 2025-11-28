@@ -189,21 +189,41 @@ actor CampaignManager {
         do {
             Logger.debug("📨 Received WebSocket message (\(message.count) chars)")
             
-            let campaignResponse = try JSONDecoder().decode(
-                CampaignResponse.self,
-                from: Data(message.utf8)
-            )
+            // -------------------------------
+            // 1️⃣ Offload JSON decode to background thread
+            // -------------------------------
+            let campaignResponse = try await Task.detached(priority: .high) {
+                return try JSONDecoder().decode(
+                    CampaignResponse.self,
+                    from: Data(message.utf8)
+                )
+            }.value
             
             let campaigns = campaignResponse.campaigns ?? []
             
-            let filteredCampaigns = campaigns.filter { campaign in
-                guard let campaignScreen = campaign.screen else { return false }
-                return campaignScreen.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                    == screenName.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+            // -------------------------------
+            // 2️⃣ Heavy filtering on background thread
+            // -------------------------------
+            let filteredCampaigns = await Task.detached(priority: .high) {
+                campaigns.filter { campaign in
+                    guard let campaignScreen = campaign.screen else { return false }
+                    
+                    return campaignScreen
+                        .lowercased()
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    ==
+                    screenName
+                        .lowercased()
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }.value
             
             Logger.info("✅ Parsed \(filteredCampaigns.count) campaigns for \(screenName)")
             
+            // -------------------------------
+            // 3️⃣ Return results
+            // (Only this part executes on the actor)
+            // -------------------------------
             await resumeContinuation(requestID, with: .success(filteredCampaigns))
             
         } catch {
@@ -211,6 +231,7 @@ actor CampaignManager {
             await resumeContinuation(requestID, with: .failure(error))
         }
     }
+
     
     // MARK: - Continuation Lifecycle Management
     

@@ -61,6 +61,7 @@ public struct CampaignModel: Codable, Sendable, Equatable, Identifiable {
         case "BAN":
             let bannerDetails = try container.decode(BannerDetails.self, forKey: .details)
             details = .banner(bannerDetails)
+            Logger.debug("Decoded BAN campaign")
         case "FLT":
             let floaterDetails = try container.decode(FloaterDetails.self, forKey: .details)
             details = .floater(floaterDetails)
@@ -68,9 +69,11 @@ public struct CampaignModel: Codable, Sendable, Equatable, Identifiable {
         case "CSAT":
             let csatDetails = try container.decode(CsatDetails.self, forKey: .details)
             details = .csat(csatDetails)
+            Logger.debug("Decoded CSAT campaign")
         case "SUR":
             let surveyDetails = try container.decode(SurveyDetails.self, forKey: .details)
             details = .survey(surveyDetails)
+            Logger.debug("Decoded SUR campaign")
         case "BTS":
             let btsDetails = try container.decode(BottomSheetDetails.self, forKey: .details)
             details = .bottomSheet(btsDetails)
@@ -90,7 +93,11 @@ public struct CampaignModel: Codable, Sendable, Equatable, Identifiable {
         case "TTP":
             let tooltipDetails = try container.decode(TooltipDetails.self, forKey: .details)
             details = .tooltip(tooltipDetails)  // ← Assign to details property
-            Logger.debug("✅ Decoded TTP campaign with \(tooltipDetails.tooltips.count) steps")
+            Logger.debug("Decoded TTP campaign with \(tooltipDetails.tooltips.count) steps")
+        case "SCRT":
+            let scratchDetails = try container.decode(ScratchCardDetails.self, forKey: .details)
+            details = .scratchCard(scratchDetails)
+            Logger.debug("Decoded SCRT campaign")
         default:
             Logger.warning("Unknown campaign type: \(campaignType)")
             details = .unknown
@@ -135,6 +142,8 @@ public struct CampaignModel: Codable, Sendable, Equatable, Identifiable {
             try container.encode(storyDetails, forKey: .details)
         case .reel(let reelDetails):
             try container.encode(reelDetails, forKey: .details)
+        case .scratchCard(let scratchDetails):
+            try container.encode(scratchDetails, forKey: .details)
         case .unknown:
             break
         }
@@ -158,6 +167,7 @@ public enum CampaignDetails: Sendable, Equatable {
     case modal(ModalDetails)
     case stories([StoryDetails])
     case reel(ReelDetails)
+    case scratchCard(ScratchCardDetails)
     case unknown
     
     // ✅ FIXED: Compare actual associated values
@@ -176,6 +186,7 @@ public enum CampaignDetails: Sendable, Equatable {
              (.modal, .modal),
              (.stories, .stories),
              (.reel, .reel),
+            (.scratchCard, .scratchCard),
              (.unknown, .unknown):
             return true
         default:

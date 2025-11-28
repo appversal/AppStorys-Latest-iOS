@@ -3,10 +3,12 @@
 //  AppStorys_iOS
 //
 //  Simple floating button anchored to bottom corners
+//  ✅ ENHANCED: Support for Lottie animations
 //
 
 import SwiftUI
 import UIKit
+import Lottie
 
 public struct FloaterView: View {
     // MARK: - Properties
@@ -16,6 +18,7 @@ public struct FloaterView: View {
     
     @State private var isPresentedLinkError = false
     @State private var hasTrackedView = false
+    @State private var contentLoaded = false
     
     private let padding: CGFloat = 16
     
@@ -99,59 +102,89 @@ public struct FloaterView: View {
     
     private var floaterButton: some View {
         Button(action: handleTap) {
+            floaterContent
+                .frame(width: floaterWidth, height: floaterHeight)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    // MARK: - Floater Content
+    
+    @ViewBuilder
+    private var floaterContent: some View {
+        // ✅ Priority: Lottie > Image > Placeholder
+        if let lottieUrlString = details.lottieData, let lottieUrl = URL(string: lottieUrlString) {
+            // Show Lottie animation
+            FloaterLottieView(
+                url: lottieUrl,
+                contentLoaded: $contentLoaded
+            )
+        } else if let imageUrlString = details.image, let imageUrl = URL(string: imageUrlString) {
+            // Show static image
             AppStorysImageView(
-                url: URL(string: details.image ?? ""),
+                url: imageUrl,
                 contentMode: .fill,
                 showShimmer: true,
                 cornerRadius: cornerRadius,
                 onSuccess: {
+                    contentLoaded = true
                     Logger.debug("✅ Floater image loaded")
                 },
                 onFailure: { error in
                     Logger.warning("⚠️ Floater image failed: \(error.localizedDescription)")
                 }
             )
-            .frame(width: floaterWidth, height: floaterHeight)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+        } else {
+            // Show placeholder
+            Rectangle()
+                .fill(Color.gray.opacity(0.2))
+                .overlay(
+                    Image(systemName: "photo")
+                        .font(.title3)
+                        .foregroundColor(.gray)
+                )
         }
-        .buttonStyle(.plain)
     }
     
     // MARK: - Actions
-    
     private func handleTap() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        
+
         Task {
-            await trackEvent(name: "clicked")
+            // Track analytics FIRST
+            let contentType = details.lottieData != nil ? "lottie" : "image"
+            await trackEvent(name: "clicked", metadata: [
+                "content_type": contentType,
+                "target": details.link ?? "nil"
+            ])
+
+            // Run Smart Link Handler on MainActor
+            await MainActor.run {
+                AppStorys.handleSmartLink(details.link)
+            }
         }
-        
-        guard let link = details.link,
-              !link.trimmingCharacters(in: .whitespaces).isEmpty,
-              let url = URL(string: link) else {
-            Logger.warning("⚠️ No valid link for floater")
-            return
-        }
-        
-        openURL(url)
     }
-    
-    private func openURL(_ url: URL) {
+
+    private func openURL(_ url: URL, completion: @escaping (Bool) -> Void) {
         DispatchQueue.main.async {
             if UIApplication.shared.canOpenURL(url) {
                 UIApplication.shared.open(url, options: [:]) { success in
                     if !success {
-                        isPresentedLinkError = true
+                        self.isPresentedLinkError = true
                         Logger.warning("⚠️ Failed to open URL: \(url.absoluteString)")
                     }
+                    completion(success)
                 }
             } else {
-                isPresentedLinkError = true
+                self.isPresentedLinkError = true
                 Logger.warning("⚠️ Cannot open URL: \(url.absoluteString)")
+                completion(false)
             }
         }
     }
+
     
     // MARK: - Helpers
     
@@ -168,8 +201,12 @@ public struct FloaterView: View {
         guard !hasTrackedView else { return }
         hasTrackedView = true
         
+        let contentType = details.lottieData != nil ? "lottie" : "image"
+        
         Task {
-            await trackEvent(name: "viewed")
+            await trackEvent(name: "viewed", metadata: [
+                "content_type": contentType
+            ])
         }
     }
     
@@ -179,6 +216,43 @@ public struct FloaterView: View {
             campaignId: campaignId,
             metadata: metadata
         )
+    }
+}
+
+// MARK: - Floater Lottie View Helper
+
+private struct FloaterLottieView: UIViewRepresentable {
+    let url: URL
+    @Binding var contentLoaded: Bool
+    
+    func makeUIView(context: Context) -> LottieAnimationView {
+        let animationView = LottieAnimationView()
+        animationView.contentMode = .scaleAspectFill
+        animationView.loopMode = .loop
+        animationView.backgroundBehavior = .pauseAndRestore
+        
+        // Load animation from URL
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                let animation = try JSONDecoder().decode(LottieAnimation.self, from: data)
+                
+                await MainActor.run {
+                    animationView.animation = animation
+                    animationView.play()
+                    contentLoaded = true
+                    Logger.info("✅ Floater Lottie loaded and playing")
+                }
+            } catch {
+                Logger.error("❌ Failed to load floater Lottie", error: error)
+            }
+        }
+        
+        return animationView
+    }
+    
+    func updateUIView(_ uiView: LottieAnimationView, context: Context) {
+        // No updates needed
     }
 }
 
@@ -197,6 +271,7 @@ struct FloaterView_Previews: PreviewProvider {
                     details: FloaterDetails(
                         id: "1",
                         image: "https://picsum.photos/60/60",
+                        lottieData: nil,
                         link: "https://example.com",
                         height: 60,
                         width: 60,
@@ -218,6 +293,7 @@ struct FloaterView_Previews: PreviewProvider {
                     details: FloaterDetails(
                         id: "2",
                         image: "https://picsum.photos/60/60",
+                        lottieData: nil,
                         link: "https://example.com",
                         height: 60,
                         width: 60,

@@ -288,11 +288,24 @@ public struct BottomSheetView: View {
     }
     
     private func handleDismiss() {
-        Task {
-            await trackEvent(name: "dismissed")
+        Logger.debug("❌ Dismissing via X button: \(campaignId)")
+        
+        // ✅ Dismiss campaign state first
+        AppStorys.shared.dismissCampaign(campaignId)
+        
+        // ✅ Track event (detached)
+        Task.detached(priority: .userInitiated) {
+            await AppStorys.shared.trackEvents(
+                eventType: "dismissed",
+                campaignId: campaignId,
+                metadata: ["action": "button_dismiss"]
+            )
         }
         
-        animateOut()
+        // ✅ Animate out
+        withAnimation(.easeInOut(duration: 0.25)) {
+            isPresented = false
+        }
         
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }

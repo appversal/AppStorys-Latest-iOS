@@ -85,7 +85,6 @@ struct StoryGroupThumbnailView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
     }
 }
@@ -134,7 +133,6 @@ struct StoryThumbnail: View {
                         .frame(width: size, height: size)
                 }
             }
-            
             .padding(ringWidth)
             .background(
                 colorScheme == .dark ? Color.black : Color.white,
@@ -149,20 +147,15 @@ struct StoryThumbnail: View {
                     )
             )
             
-            Text(displayName)
-                .font(.footnote)
-                .foregroundColor(nameColor)
-                .lineLimit(2)
-                .frame(width: size + ringWidth * 4)
-        }
-    }
-    
-    // âœ… Computed property for display name
-    private var displayName: String {
-        if let name = story.name, !name.isEmpty {
-            return name
-        } else {
-            return " "  // Use space character for empty names
+            if let name = story.name, !name.isEmpty {
+                Text(name)
+                    .font(.footnote)
+                    .foregroundColor(nameColor)
+                    .lineLimit(2)
+                    .frame(width: size + ringWidth * 4)
+            }
+            
+            Spacer()
         }
     }
     
