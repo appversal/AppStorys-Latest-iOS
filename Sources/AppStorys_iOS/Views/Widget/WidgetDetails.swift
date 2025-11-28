@@ -5,7 +5,6 @@
 //  Created by Ansh Kalra on 08/10/25.
 //
 
-
 import Foundation
 
 public struct WidgetDetails: Codable, Sendable {
@@ -35,11 +34,16 @@ public struct WidgetStyling: Codable, Sendable {
 
 public struct WidgetImage: Codable, Sendable {
     public let id: String
-    public let image: String
+    public let image: String?          // ✅ Made optional for Lottie support
+    public let lottieData: String?     // ✅ NEW: Lottie animation URL
     public let link: String?
     public let order: Int
+    
+    enum CodingKeys: String, CodingKey {
+        case id, image, link, order
+        case lottieData = "lottie_data"  // ✅ Maps to snake_case from backend
+    }
 }
-
 
 /// Represents a full widget campaign sent over WebSocket
 public struct WidgetCampaign: Codable, Sendable, Identifiable {

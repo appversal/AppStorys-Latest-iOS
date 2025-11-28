@@ -24,48 +24,44 @@ public struct ModalDetails: Codable, Sendable {
 public struct ModalItem: Codable, Sendable, Identifiable {
     public var id: String { name } // Use name as unique identifier
     
-    let backgroundOpacity: String?
-    let borderRadius: String?
+    let backgroundOpacity: StringOrInt?
+    let borderRadius: StringOrInt?
     let link: String?
     let name: String
     let redirection: RedirectionConfig?
-    let size: String?
+    let size: StringOrInt?
     let url: String?
+    let lottieData: String?  // ✅ NEW: Lottie animation URL
     
     enum CodingKeys: String, CodingKey {
         case backgroundOpacity, borderRadius, link, name
         case redirection, size, url
+        case lottieData = "lottie_data"  // ✅ Maps to snake_case from backend
     }
     
     // MARK: - Computed Properties
     
     var backdropOpacity: Double {
-        guard let opacityString = backgroundOpacity,
-              let opacity = Double(opacityString) else {
-            return 0.5 // Default backdrop opacity
-        }
-        return max(0.0, min(1.0, opacity))
+        Double(backgroundOpacity?.stringValue ?? "0.5") ?? 0.5
     }
-    
+
     var cornerRadius: CGFloat {
-        guard let radiusString = borderRadius,
-              let radius = Double(radiusString) else {
-            return 24 // Default corner radius
-        }
-        return CGFloat(radius)
+        CGFloat(Double(borderRadius?.stringValue ?? "24") ?? 24)
     }
-    
+
     var modalSize: CGFloat {
-        guard let sizeString = size,
-              let sizeValue = Double(sizeString) else {
-            return 300 // Default size
-        }
-        return CGFloat(sizeValue)
+        CGFloat(Double(size?.stringValue ?? "300") ?? 300)
     }
-    
+
     var imageURL: URL? {
         guard let urlString = url else { return nil }
         return URL(string: URLHelper.sanitizeURL(urlString) ?? urlString)
+    }
+    
+    // ✅ NEW: Lottie URL computed property
+    var lottieURL: URL? {
+        guard let urlString = lottieData else { return nil }
+        return URL(string: urlString)
     }
     
     var destinationURL: URL? {

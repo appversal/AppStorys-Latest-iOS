@@ -2,12 +2,13 @@
 //  WidgetView.swift
 //  AppStorys_iOS
 //
-//  ✅ ENHANCED: Widgets now auto-tag themselves for screen capture
+//  ✅ ENHANCED: Support for Lottie animations in widget images
 //
 
 import SwiftUI
 import UIKit
 import Kingfisher
+import Lottie
 
 // MARK: - Public Widget View
 
@@ -23,7 +24,7 @@ public struct WidgetView: View {
     @State private var progress: Double = 0.0
     @State private var isTransitioning: Bool = false
     @State private var viewedImageIds: Set<String> = []
-    
+    @State private var isActive = false
     private let autoScrollInterval: TimeInterval = 5.0
     
     // MARK: - Computed Properties
@@ -82,7 +83,6 @@ public struct WidgetView: View {
                     alignment: .bottom
                 )
         }
-        // ✅ No automatic tagging - developers tag manually with position
         .padding(.top, marginValue(from: styling?.topMargin))
         .padding(.bottom, marginValue(from: styling?.bottomMargin))
         .padding(.leading, marginValue(from: styling?.leftMargin))
@@ -123,9 +123,12 @@ public struct WidgetView: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .onAppear {
+            guard !isActive else { return } // ✅ Prevent double start
+            isActive = true
             handleCarouselAppear()
         }
         .onDisappear {
+            isActive = false // ✅ Mark inactive
             stopAutoScroll()
         }
         .onChange(of: currentIndex) { oldIndex, newIndex in
@@ -167,12 +170,14 @@ public struct WidgetView: View {
             alignment: .bottom
         )
         .onAppear {
+            guard !isActive else { return } // ✅ Prevent double start
+            isActive = true
             handleCarouselAppear()
         }
         .onDisappear {
+            isActive = false // ✅ Mark inactive
             stopAutoScroll()
-        }
-        .onChange(of: currentIndex) { oldIndex, newIndex in
+        }        .onChange(of: currentIndex) { oldIndex, newIndex in
             handleHalfWidthIndexChange(from: oldIndex, to: newIndex)
         }
         .simultaneousGesture(
@@ -190,19 +195,37 @@ public struct WidgetView: View {
         Button(action: {
             handleTap(on: widgetImage)
         }) {
-            AppStorysImageView(
-                url: URL(string: widgetImage.image),
-                contentMode: .fill,
-                showShimmer: true,
-                cornerRadius: 0,
-                onSuccess: {
-                    Logger.debug("✅ Widget image loaded: \(widgetImage.id)")
-                },
-                onFailure: { error in
-                    Logger.warning("⚠️ Widget image failed: \(widgetImage.id)")
-                }
-            )
-            .clipShape(UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous))
+            // ✅ Priority: Lottie > Image > Placeholder
+            if let lottieUrlString = widgetImage.lottieData, let lottieUrl = URL(string: lottieUrlString) {
+                // Show Lottie animation
+                WidgetLottieView(url: lottieUrl, imageId: widgetImage.id)
+                    .clipShape(UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous))
+            } else if let imageUrlString = widgetImage.image, let imageUrl = URL(string: imageUrlString) {
+                // Show static image
+                AppStorysImageView(
+                    url: imageUrl,
+                    contentMode: .fit,
+                    showShimmer: true,
+                    cornerRadius: 0,
+                    onSuccess: {
+                        Logger.debug("✅ Widget image loaded: \(widgetImage.id)")
+                    },
+                    onFailure: { error in
+                        Logger.warning("⚠️ Widget image failed: \(widgetImage.id)")
+                    }
+                )
+                .clipShape(UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous))
+            } else {
+                // Show placeholder
+                Rectangle()
+                    .fill(Color.gray.opacity(0.2))
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.largeTitle)
+                            .foregroundColor(.gray)
+                    )
+                    .clipShape(UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous))
+            }
         }
         .buttonStyle(.plain)
     }
@@ -312,10 +335,13 @@ public struct WidgetView: View {
     
     private func startAutoScroll() {
         let pageCount = details.type == "full" ? images.count : imagePairs.count
-        guard pageCount > 1 else { return }
+        guard pageCount > 1, isActive else { return } // ✅ Check isActive
+        
+        // ✅ Cancel any existing task first
+        autoScrollTask?.cancel()
         
         autoScrollTask = Task { @MainActor in
-            while !Task.isCancelled {
+            while !Task.isCancelled && isActive { // ✅ Check isActive in loop
                 isTransitioning = false
                 progress = 0.0
                 
@@ -325,7 +351,7 @@ public struct WidgetView: View {
                 let animationInterval = autoScrollInterval - 0.3
                 
                 while Date().timeIntervalSince(startDate) < animationInterval {
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled, isActive else { return } // ✅ Check isActive
                     
                     let elapsed = Date().timeIntervalSince(startDate)
                     progress = min(1.0, elapsed / animationInterval)
@@ -357,21 +383,25 @@ public struct WidgetView: View {
         
         Logger.debug("⏸️ Auto-scroll stopped for widget: \(campaignId)")
     }
+
     
     // MARK: - Actions
-    
     private func handleTap(on image: WidgetImage) {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+
         Task {
-            await trackEvent(name: "clicked", metadata: ["widget_image": image.id])
+            let contentType = image.lottieData != nil ? "lottie" : "image"
+            await trackEvent(name: "clicked", metadata: [
+                "widget_image": image.id,
+                "content_type": contentType,
+                "target": image.link ?? "nil"
+            ])
+
+            // Execute Smart Link / Event logic
+            await MainActor.run {
+                AppStorys.handleSmartLink(image.link)
+            }
         }
-        
-        guard let link = image.link,
-              !link.trimmingCharacters(in: .whitespaces).isEmpty,
-              let url = URL(string: link) else {
-            return
-        }
-        
-        openURL(url)
     }
     
     private func openURL(_ url: URL) {
@@ -396,8 +426,16 @@ public struct WidgetView: View {
         guard !viewedImageIds.contains(imageId) else { return }
         
         viewedImageIds.insert(imageId)
+        
+        // Determine content type for tracking
+        let widgetImage = images.first(where: { $0.id == imageId })
+        let contentType = widgetImage?.lottieData != nil ? "lottie" : "image"
+        
         Task {
-            await trackEvent(name: "viewed", metadata: ["widget_image": imageId])
+            await trackEvent(name: "viewed", metadata: [
+                "widget_image": imageId,
+                "content_type": contentType
+            ])
         }
     }
     
@@ -457,6 +495,42 @@ public struct WidgetView: View {
     
     private var shouldShowHalfWidthProgressIndicators: Bool {
         details.type == "half" && imagePairs.count > 1
+    }
+}
+
+// MARK: - Widget Lottie View Helper
+
+private struct WidgetLottieView: UIViewRepresentable {
+    let url: URL
+    let imageId: String
+    
+    func makeUIView(context: Context) -> LottieAnimationView {
+        let animationView = LottieAnimationView()
+        animationView.contentMode = .scaleAspectFit
+        animationView.loopMode = .loop
+        animationView.backgroundBehavior = .pauseAndRestore
+        
+        // Load animation from URL
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                let animation = try JSONDecoder().decode(LottieAnimation.self, from: data)
+                
+                await MainActor.run {
+                    animationView.animation = animation
+                    animationView.play()
+                    Logger.info("✅ Widget Lottie loaded: \(imageId)")
+                }
+            } catch {
+                Logger.error("❌ Failed to load widget Lottie: \(imageId)", error: error)
+            }
+        }
+        
+        return animationView
+    }
+    
+    func updateUIView(_ uiView: LottieAnimationView, context: Context) {
+        // No updates needed
     }
 }
 

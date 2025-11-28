@@ -45,15 +45,12 @@ struct AppStorysImageView: View {
     }
     
     // MARK: - Body
-    
     var body: some View {
         GeometryReader { geometry in
             Group {
                 if let url = url {
                     KFImage(url)
-                        .placeholder {
-                            placeholderView
-                        }
+                        .placeholder { placeholderView }
                         .onSuccess { _ in
                             isLoading = false
                             loadFailed = false
@@ -65,17 +62,22 @@ struct AppStorysImageView: View {
                             Logger.error("❌ Failed to load image: \(url.absoluteString)", error: error)
                             onFailure?(error)
                         }
+                    // ✅ ADD THIS: Enable GIF playback
+                        .cacheOriginalImage()
+                        .onProgress { receivedSize, totalSize in
+                            // Optional: show loading progress for large GIFs
+                        }
                         .resizable()
                         .aspectRatio(contentMode: contentMode == .fill ? .fill : .fit)
                         .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped() // ✅ CRITICAL FIX: Prevent overflow during TabView transitions
+                        .clipped()
                 } else {
                     errorView
                         .frame(width: geometry.size.width, height: geometry.size.height)
                 }
             }
         }
-        .clipped() // ✅ DOUBLE SAFETY: Ensure GeometryReader content is also clipped
+        .clipped()
     }
     
     // MARK: - Placeholder View

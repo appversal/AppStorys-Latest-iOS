@@ -2,25 +2,69 @@
 //  CaptureContextProvider.swift
 //  AppStorys_iOS
 //
-//  ✅ FIXED: Properly detects NavigationStack content vs TabView root
+//  âœ… FIXED: Properly detects NavigationStack content vs TabView root
 //
 
 import SwiftUI
 import UIKit
 
 // MARK: - Capture Context Provider
-
 @MainActor
 class CaptureContextProvider: ObservableObject {
     weak var currentView: UIView?
+    private(set) var lastScreenName: String?
+    private var updateTask: Task<Void, Never>?
+    private var lastViewIdentity: ObjectIdentifier?
     
-    func setView(_ view: UIView) {
+    func shouldUpdateView(_ proposedView: UIView, for screenName: String) -> Bool {
+        let proposedIdentity = ObjectIdentifier(proposedView)
+        
+        if lastScreenName == screenName && lastViewIdentity == proposedIdentity {
+            return false
+        }
+        
+        return true
+    }
+    
+    func setView(_ view: UIView, for screenName: String) {
+        guard shouldUpdateView(view, for: screenName) else {
+            Logger.debug("⏭ Skipping redundant scan for \(screenName)")
+            return
+        }
+        
+        // ✅ FIX: Set view immediately (no delay)
+        let proposedIdentity = ObjectIdentifier(view)
         self.currentView = view
-        let viewType = String(describing: type(of: view))
-        let frame = view.frame
-        Logger.debug("📱 Capture context updated: \(viewType) frame: \(frame)")
+        self.lastScreenName = screenName
+        self.lastViewIdentity = proposedIdentity
+        
+        // ✅ Only debounce the logging (not the assignment)
+        updateTask?.cancel()
+        updateTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            
+            guard !Task.isCancelled else { return }
+            
+            // Verify view is still current after delay
+            guard self.lastViewIdentity == proposedIdentity else {
+                Logger.debug("⏭ View changed during debounce, skipping log")
+                return
+            }
+            
+            let viewType = String(describing: type(of: view))
+            Logger.debug("🔧 Context updated: \(viewType) for \(screenName)")
+        }
+    }
+    
+    func clearContext() {
+        updateTask?.cancel()
+        currentView = nil
+        lastScreenName = nil
+        lastViewIdentity = nil
+        Logger.info("🧹 Capture context cleared")
     }
 }
+
 
 // MARK: - View Extension for Capture Context
 
@@ -44,39 +88,52 @@ private struct CaptureContextView: UIViewRepresentable {
     
     func updateUIView(_ uiView: CaptureContextUIView, context: Context) {
         // 🚫 Skip global context updates when no tracked screen is active
-        guard sdk.currentScreen != nil else {
+        guard let screenName = sdk.currentScreen else {
             if Self.lastLoggedNilContext != true {
                 Logger.debug("🚫 Global CaptureContextProvider skipped — no active tracked screen")
                 Self.lastLoggedNilContext = true
             }
             return
         }
-
-        // ✅ Allow only active tracked screens to set context
+        
         Self.lastLoggedNilContext = false
+        
+        // ✅ CRITICAL FIX: Check cache BEFORE expensive scan
+        // Quick lightweight check using window identity
+        if let lastView = sdk.captureContextProvider.currentView,
+           let lastWindow = lastView.window,
+           let currentWindow = uiView.window,
+           lastWindow === currentWindow,
+           sdk.captureContextProvider.lastScreenName == screenName {
+            Logger.debug("⏭ Skipping redundant scan - same window + screen (\(screenName))")
+            return
+        }
+        
+        // ✅ Only scan if cache check failed
+        Logger.debug("🔍 Performing hierarchy scan for \(screenName)...")
+        
         if let contentView = uiView.findActualContentView() {
-            sdk.setCaptureContext(contentView)
-            Logger.debug("✅ Capture context set: \(type(of: contentView))")
+            // ✅ Use the cached setView() method (not setCaptureContext)
+            sdk.captureContextProvider.setView(contentView, for: screenName)
         } else {
             Logger.warning("⚠️ Could not find content view for capture context")
         }
     }
 
     private static var lastLoggedNilContext: Bool?
-
 }
 
 private class CaptureContextUIView: UIView {
     /// Find the actual visible content view
     func findActualContentView() -> UIView? {
-        Logger.debug("🔍 Searching for actual content view (hybrid Tab + Nav deep mode)...")
+        Logger.debug("ðŸ” Searching for actual content view (hybrid Tab + Nav deep mode)...")
 
-        // ✅ Find key window
+        // âœ… Find key window
         guard let window = self.window ?? UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .flatMap({ $0.windows })
             .first(where: \.isKeyWindow) else {
-            Logger.warning("⚠️ No window available")
+            Logger.warning("âš ï¸ No window available")
             return nil
         }
 
@@ -95,19 +152,19 @@ private class CaptureContextUIView: UIView {
                 return
             }
 
-            // ✅ Detect HostingView with visible tagged elements
+            // âœ… Detect HostingView with visible tagged elements
             if viewType.contains("HostingView"),
                !viewType.contains("TabBar"),
                view.bounds.height > 100,
                view.containsTaggedElement() {
-                Logger.debug("🎯 Leaf HostingView candidate: \(viewType) with tagged content ✅")
+                Logger.debug("ðŸŽ¯ Leaf HostingView candidate: \(viewType) with tagged content âœ…")
                 bestCandidate = view
             }
 
-            // ✅ Detect Tab-based HostingView (bottom tabs)
+            // âœ… Detect Tab-based HostingView (bottom tabs)
             if viewType.contains("HostingView"),
                view.superview?.description.contains("UIKitAdaptableTabView") == true {
-                Logger.debug("🎯 Tab HostingView candidate: \(viewType)")
+                Logger.debug("ðŸŽ¯ Tab HostingView candidate: \(viewType)")
                 bestCandidate = view
             }
 
@@ -122,24 +179,24 @@ private class CaptureContextUIView: UIView {
         // MARK: - Pick best candidate or fallback
         if let best = bestCandidate {
             if best.window != nil, best.containsTaggedElement() {
-                Logger.info("🎯 Selected content view for capture: \(type(of: best)) frame:\(best.frame)")
+                Logger.info("ðŸŽ¯ Selected content view for capture: \(type(of: best)) frame:\(best.frame)")
                 return best
             } else if let visibleSub = best.findVisibleHostingDescendant() {
-                Logger.info("🎯 Using visible descendant HostingView for capture: \(type(of: visibleSub)) frame:\(visibleSub.frame)")
+                Logger.info("ðŸŽ¯ Using visible descendant HostingView for capture: \(type(of: visibleSub)) frame:\(visibleSub.frame)")
                 return visibleSub
             } else {
-                Logger.warning("⚠️ Best candidate not visible — falling back to window")
+                Logger.warning("âš ï¸ Best candidate not visible â€” falling back to window")
                 return window
             }
         }
 
-        // ✅ Deep fallback to the deepest visible HostingView
+        // âœ… Deep fallback to the deepest visible HostingView
         if let fallback = window.deepestHostingView() {
-            Logger.warning("⚠️ Using deepest HostingView as fallback: \(type(of: fallback)) frame:\(fallback.frame)")
+            Logger.warning("âš ï¸ Using deepest HostingView as fallback: \(type(of: fallback)) frame:\(fallback.frame)")
             return fallback
         }
 
-        Logger.error("❌ No suitable content view found, returning window")
+        Logger.error("âŒ No suitable content view found, returning window")
         return window
     }
 
@@ -151,9 +208,10 @@ private class CaptureContextUIView: UIView {
 extension AppStorys {
     private static var captureContext: CaptureContextProvider = CaptureContextProvider()
     
-    func setCaptureContext(_ view: UIView) {
-        Self.captureContext.currentView = view
-    }
+    // ✅ DEPRECATED: Remove this method - use captureContextProvider.setView() instead
+    // func setCaptureContext(_ view: UIView) {
+    //     Self.captureContext.currentView = view
+    // }
     
     func getCaptureView() throws -> UIView {
         if let contextView = Self.captureContext.currentView {
@@ -172,24 +230,22 @@ extension AppStorys {
         return window
     }
 
-    /// ✅ Add this public accessor
+    /// ✅ Public accessor for context provider
     var captureContextProvider: CaptureContextProvider {
         return Self.captureContext
     }
     
     func clearCaptureContext() {
-        Self.captureContext.currentView = nil
-        Logger.info("🧹 Capture context cleared — no active tracked view")
+        Self.captureContext.clearContext() // ✅ Use the provider's method
     }
+    
     func isScreenCurrentlyVisible(_ name: String) -> Bool {
         return captureContextProvider.currentView != nil && currentScreen == name
     }
-
-
 }
 
 
-// MARK: - 🔍 Debug Helper: Dump Entire View Hierarchy
+// MARK: - ðŸ” Debug Helper: Dump Entire View Hierarchy
 extension UIView {
     func dumpHierarchy(
         depth: Int = 0,
@@ -199,11 +255,11 @@ extension UIView {
         let viewType = String(describing: type(of: self))
         let frameString = "(\(Int(frame.origin.x)), \(Int(frame.origin.y)), \(Int(frame.width)), \(Int(frame.height)))"
         let id = accessibilityIdentifier ?? "nil"
-        Logger.debug("\(indent)• \(prefix)\(viewType)  id:\(id)  frame:\(frameString)  alpha:\(alpha)  window:\(window != nil ? "✅" : "❌")")
+        Logger.debug("\(indent)â€¢ \(prefix)\(viewType)  id:\(id)  frame:\(frameString)  alpha:\(alpha)  window:\(window != nil ? "âœ…" : "âŒ")")
 
         // Avoid infinite recursion for huge trees
         guard depth < 25 else {
-            Logger.debug("\(indent)  … (depth limit reached)")
+            Logger.debug("\(indent)  â€¦ (depth limit reached)")
             return
         }
 
