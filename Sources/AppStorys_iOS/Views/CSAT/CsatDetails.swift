@@ -118,7 +118,30 @@ public struct CsatStyling: Codable, Sendable {
 }
 
 public struct FeedbackOptions: Codable, Sendable {
-    public let option1: String?
-    public let option2: String?
-    public let option3: String?
+    public let options: [String]
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: DynamicCodingKeys.self)
+
+        // Decode ALL optionX values regardless of count
+        var temp: [(key: String, value: String)] = []
+
+        for key in container.allKeys {
+            let value = try container.decode(String.self, forKey: key)
+            temp.append((key: key.stringValue, value: value))
+        }
+
+        // Sort by option1, option2, option3… for stable order
+        self.options = temp
+            .sorted { $0.key.lowercased() < $1.key.lowercased() }
+            .map { $0.value }
+    }
+
+    struct DynamicCodingKeys: CodingKey {
+        var stringValue: String
+        init?(stringValue: String) { self.stringValue = stringValue }
+        var intValue: Int? { nil }
+        init?(intValue: Int) { nil }
+    }
 }
+

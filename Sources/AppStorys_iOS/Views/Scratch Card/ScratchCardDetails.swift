@@ -127,6 +127,7 @@ public struct RewardContent: Codable, Sendable, Equatable {
     public let offerSubtitleTextColor: String?
     public let titleFontSize: StringOrInt?
     public let subtitleFontSize: StringOrInt?
+    public let imageSize: StringOrInt?
     
     enum CodingKeys: String, CodingKey {
         case brandName = "offer_title"
@@ -137,6 +138,7 @@ public struct RewardContent: Codable, Sendable, Equatable {
         case offerSubtitleTextColor = "offerSubtitleTextColor"
         case titleFontSize
         case subtitleFontSize
+        case imageSize
     }
     
     public init(
@@ -147,7 +149,8 @@ public struct RewardContent: Codable, Sendable, Equatable {
         offerTitleTextColor: String?,
         offerSubtitleTextColor: String?,
         titleFontSize: StringOrInt?,
-        subtitleFontSize: StringOrInt?
+        subtitleFontSize: StringOrInt?,
+        imageSize: StringOrInt?
         
     ) {
         self.brandName = brandName
@@ -158,6 +161,7 @@ public struct RewardContent: Codable, Sendable, Equatable {
         self.offerSubtitleTextColor = offerSubtitleTextColor
         self.titleFontSize = titleFontSize
         self.subtitleFontSize = subtitleFontSize
+        self.imageSize = imageSize
     }
 }
 

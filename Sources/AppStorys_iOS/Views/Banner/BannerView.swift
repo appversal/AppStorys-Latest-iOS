@@ -20,13 +20,14 @@ struct BannerView: View {
     var body: some View {
         if isVisible {
             VStack {
-                Spacer()
                 bannerContent
                 
                 .onTapGesture {
                     handleTap()
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+
             .safeAreaPadding(.bottom, 60 + bottomPadding)
             .padding(.horizontal, horizontalPadding)
             

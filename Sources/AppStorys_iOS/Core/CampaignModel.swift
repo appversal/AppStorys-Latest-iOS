@@ -98,6 +98,10 @@ public struct CampaignModel: Codable, Sendable, Equatable, Identifiable {
             let scratchDetails = try container.decode(ScratchCardDetails.self, forKey: .details)
             details = .scratchCard(scratchDetails)
             Logger.debug("Decoded SCRT campaign")
+        case "MIL":
+            let milestoneDetails = try container.decode(MilestoneDetails.self, forKey: .details)
+            details = .milestone(milestoneDetails)
+            Logger.debug("Decoded MIL campaign")
         default:
             Logger.warning("Unknown campaign type: \(campaignType)")
             details = .unknown
@@ -144,6 +148,8 @@ public struct CampaignModel: Codable, Sendable, Equatable, Identifiable {
             try container.encode(reelDetails, forKey: .details)
         case .scratchCard(let scratchDetails):
             try container.encode(scratchDetails, forKey: .details)
+        case .milestone(let milestoneDetails):
+            try container.encode(milestoneDetails, forKey: .details)
         case .unknown:
             break
         }
@@ -168,6 +174,7 @@ public enum CampaignDetails: Sendable, Equatable {
     case stories([StoryDetails])
     case reel(ReelDetails)
     case scratchCard(ScratchCardDetails)
+    case milestone(MilestoneDetails)
     case unknown
     
     // ✅ FIXED: Compare actual associated values
@@ -176,18 +183,19 @@ public enum CampaignDetails: Sendable, Equatable {
     public static func == (lhs: CampaignDetails, rhs: CampaignDetails) -> Bool {
         switch (lhs, rhs) {
         case (.banner, .banner),
-             (.floater, .floater),
-             (.pip, .pip),
-             (.csat, .csat),
-             (.survey, .survey),
-             (.widget, .widget),
-             (.bottomSheet, .bottomSheet),
-             (.tooltip, .tooltip),
-             (.modal, .modal),
-             (.stories, .stories),
-             (.reel, .reel),
+            (.floater, .floater),
+            (.pip, .pip),
+            (.csat, .csat),
+            (.survey, .survey),
+            (.widget, .widget),
+            (.bottomSheet, .bottomSheet),
+            (.tooltip, .tooltip),
+            (.modal, .modal),
+            (.stories, .stories),
+            (.reel, .reel),
             (.scratchCard, .scratchCard),
-             (.unknown, .unknown):
+            (.milestone, .milestone),
+            (.unknown, .unknown):
             return true
         default:
             return false

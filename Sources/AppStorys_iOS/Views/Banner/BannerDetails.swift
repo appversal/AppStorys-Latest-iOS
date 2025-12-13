@@ -39,9 +39,11 @@ public enum StringOrInt: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        
+
         if let intVal = try? container.decode(Int.self) {
             self = .int(intVal)
+        } else if let doubleVal = try? container.decode(Double.self) {
+            self = .string(String(doubleVal))
         } else if let stringVal = try? container.decode(String.self) {
             self = .string(stringVal)
         } else {
@@ -49,7 +51,7 @@ public enum StringOrInt: Codable, Sendable, Equatable {
                 StringOrInt.self,
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
-                    debugDescription: "Expected String or Int"
+                    debugDescription: "Expected String or Int or Double"
                 )
             )
         }
@@ -63,15 +65,29 @@ public enum StringOrInt: Codable, Sendable, Equatable {
         }
     }
 
-    /// Always return string for UI
+    /// Return as string
     public var stringValue: String {
         switch self {
         case .int(let v): return "\(v)"
         case .string(let v): return v
         }
     }
-    
+
+    /// Return as Double (if possible)
+    public var doubleValue: Double? {
+        switch self {
+        case .int(let v): return Double(v)
+        case .string(let v): return Double(v)
+        }
+    }
+
+    /// Useful for UI fallback
+    public var doubleValueOrZero: Double {
+        doubleValue ?? 0
+    }
+
     public static func == (lhs: StringOrInt, rhs: StringOrInt) -> Bool {
         lhs.stringValue == rhs.stringValue
     }
 }
+

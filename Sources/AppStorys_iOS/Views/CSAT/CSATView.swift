@@ -46,12 +46,11 @@ struct CSATView: View {
         let ms = details.styling?.displayDelay ?? 0
         return TimeInterval(ms) / 1000.0
     }
-    
+
     private var hasFeedbackOptions: Bool {
-        let o = details.feedbackOption
-        return o?.option1 != nil || o?.option2 != nil || o?.option3 != nil
+        !(details.feedbackOption?.options.isEmpty ?? true)
     }
-    
+
     private var highStarColor: Color {
         Color(hex: details.styling?.csatHighStarColor ?? "#00B359")
     }
@@ -109,16 +108,6 @@ struct CSATView: View {
     
     var body: some View {
         ZStack {
-            
-//            // BACKGROUND TAP DISMISS
-//            Rectangle()
-//                .fill(Color.black.opacity(0.001))
-//                .ignoresSafeArea()
-//                .onTapGesture {
-//                    dismissWithTracking()
-//                }
-            
-            // BOTTOM SHEET
             VStack {
                 Spacer()
                 
@@ -127,6 +116,7 @@ struct CSATView: View {
                     .opacity(isVisible ? 1 : 0)
                     .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isVisible)
             }
+            .safeAreaPadding(.top)
         }
         .onAppear {
             handleAppear()
@@ -173,12 +163,12 @@ struct CSATView: View {
                 .background(
                     Circle()
                         .fill(.thinMaterial)
-                )        }
+                )
+        }
         .buttonStyle(.plain)
     }
     
     // MARK: - CSAT Content
-    
     private var csatInnerView: some View {
         VStack(spacing: 16) {
             
@@ -201,11 +191,33 @@ struct CSATView: View {
             starRatingView
             
             if selectedRating != nil && selectedRating! < 4 {
-                expandedContentView
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.95).combined(with: .opacity),
-                        removal: .scale(scale: 0.95).combined(with: .opacity)
-                    ))
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 0) {
+                            expandedContentView
+                            
+                            // 👇 Anchor to scroll to when keyboard opens
+                            Color.clear
+                                .frame(height: 44)
+                                .id("BOTTOM")
+                        }
+                    }
+                    .onChange(of: isCommentFocused) { focused in
+                        if focused {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                withAnimation(.easeOut) {
+                                    proxy.scrollTo("BOTTOM", anchor: .bottom)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                .scrollBounceBehavior(.basedOnSize) // ✅ This handles it automatically
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.95).combined(with: .opacity),
+                    removal: .scale(scale: 0.95).combined(with: .opacity)
+                ))
             }
         }
         .padding(.vertical, 32)
@@ -268,7 +280,7 @@ struct CSATView: View {
                     .foregroundColor(descriptionColor)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                TextField("Enter your comments...", text: $commentText, axis: .vertical)
+                TextField("Write your feedback...", text: $commentText, axis: .vertical)
                     .lineLimit(3...5)
                     .padding(12)
                     .foregroundColor(additionalTextColor)
@@ -284,17 +296,20 @@ struct CSATView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            submitButton
+            if !ctaButtonText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                submitButton
+            }
+
         }
         .padding(.top, 4)
     }
     
     private var feedbackOptionsView: some View {
         VStack(spacing: 12) {
-            if let o = details.feedbackOption {
-                if let op = o.option1 { feedbackOptionButton(op) }
-                if let op = o.option2 { feedbackOptionButton(op) }
-                if let op = o.option3 { feedbackOptionButton(op) }
+            if let options = details.feedbackOption?.options {
+                ForEach(options, id: \.self) { option in
+                    feedbackOptionButton(option)
+                }
             }
         }
     }
@@ -350,7 +365,7 @@ struct CSATView: View {
                let url = URL(string: sanitized) {
                 KFImage(url)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+//                    .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: 200, maxHeight: 200)
             }
             
@@ -367,7 +382,9 @@ struct CSATView: View {
                     .multilineTextAlignment(.center)
             }
             
-            if let link = details.link {
+            if let link = details.link,
+               !ctaButtonText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+
                 Button(action: { handleCTAClick(link) }) {
                     Text(ctaButtonText)
                         .font(.system(size: fontSize + 2, weight: .semibold))
