@@ -218,6 +218,28 @@ struct AppStorysOverlayModifier: ViewModifier {
             .zIndex(3200)
         }
         
+        if let milestoneCampaign = sdk.activeMilestoneCampaign,
+               case let .milestone(details) = milestoneCampaign.details,
+           shouldShowAsOverlay(milestoneCampaign){
+                
+                VStack {
+                    Spacer()
+                    // Padding bottom to sit above a potential banner or bottom of screen
+                    // If banner is present, add extra padding?
+                    // For now, just placing it at the bottom.
+                    
+                    MilestoneView(
+                        campaignId: milestoneCampaign.id,
+                        details: details
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, sdk.activeBannerCampaign != nil ? 140 : 20) // Simple adjustment if banner exists
+                }
+                .zIndex(850) // Above banner (800), below Floater (900)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .id(milestoneCampaign.id)
+            }
+        
         // SCRATCH CARD OVERLAY
         if showScratch,
            let scratchCampaign = sdk.activeScratchCampaign,
@@ -234,6 +256,8 @@ struct AppStorysOverlayModifier: ViewModifier {
             .animation(.spring(response: 0.35), value: scratchCampaign.id)
             .zIndex(2500)   // Above modal / below story
         }
+        
+        
 
         // Capture Button Overlay (safe version)
         if showCapture,
@@ -261,7 +285,7 @@ struct AppStorysOverlayModifier: ViewModifier {
                     sdk.dismissStory()
                 }
             )
-            .zIndex(2000)
+            .zIndex(4000)
             .id(presentationState.campaign.id)
             .transition(.move(edge: .bottom))
         }
@@ -288,6 +312,15 @@ struct AppStorysOverlayModifier: ViewModifier {
         }
     }
 
+    private func shouldShowAsOverlay(_ campaign: CampaignModel) -> Bool {
+        // If position is nil or empty, it's an overlay.
+        // If position is set (e.g., "home_header"), it belongs to an Inline widget.
+        guard let position = campaign.position, !position.isEmpty else {
+            return true
+        }
+        return false
+    }
+    
     // MARK: - Handlers
 
     // ✅ UPDATED: Handle initial state + cache ID

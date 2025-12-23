@@ -572,14 +572,16 @@ fileprivate struct RewardContentView: View {
                 VStack(alignment: .center, spacing: vSpacing) {
                     
                     if let banner = details.bannerImage,
+                       
                        let url = URL(string: banner) {
+                        let imgSize = reward?.imageSize?.cgFloatValue ?? 96
                         AppStorysImageView(
                             url: url,
                             contentMode: .fill,
                             showShimmer: true
                         )
                         .clipShape(Circle())
-                        .frame(maxWidth: 96, maxHeight: 96)
+                        .frame(maxWidth: imgSize, maxHeight: imgSize)
                         .padding(.vertical, bannerPadding)
                     }
 

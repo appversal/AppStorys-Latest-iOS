@@ -3,6 +3,7 @@
 //  AppStorys_iOS
 //
 //  Fixed: Moved viewer-level gestures to pager (proper separation of concerns)
+//  ✅ FIXED: dismisses view if stuck during swipe-down
 //
 
 import SwiftUI
@@ -79,6 +80,25 @@ struct StoryGroupPager: View {
         } onPressingChanged: { pressing in
             // Set global pause state
             manager.isPaused = pressing
+            
+            // ✅ CRITICAL FIX for Stuck View:
+            // If the gesture was interrupted (user dragged then held), check the offset.
+            if !pressing && viewerDragOffset > 0 {
+                // If they had already dragged it down a bit (> 50), assume they wanted to dismiss
+                if viewerDragOffset > 50 {
+                    Logger.debug("👋 Dismissing stuck view (interrupted drag)")
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        onDismiss()
+                    }
+                } else {
+                    // If it was just a tiny micro-drag, snap back safely
+                    Logger.debug("🧹 Recovering from interrupted drag gesture")
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                        viewerDragOffset = 0
+                    }
+                }
+            }
+            
             Logger.debug(pressing ? "⏸️ Stories paused (long press)" : "▶️ Stories resumed")
         }
     }

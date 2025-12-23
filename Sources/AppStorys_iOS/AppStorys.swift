@@ -1,10 +1,10 @@
 //
 //  AppStorys.swift - Context-Aware Navigation & Smart Caching
 //
-//  âœ… NAVIGATION TRACKING: Differentiates user flows for cache decisions
-//  âœ… CAMPAIGN COMPARISON: Prevents unnecessary UI updates
-//  âœ… METADATA SEPARATION: Fast-expiring metadata, long-lived media cache
-//  âœ… PERFORMANCE: Background prefetching + batched updates
+//   NAVIGATION TRACKING: Differentiates user flows for cache decisions
+//   CAMPAIGN COMPARISON: Prevents unnecessary UI updates
+//   METADATA SEPARATION: Fast-expiring metadata, long-lived media cache
+//   PERFORMANCE: Background prefetching + batched updates
 //
 
 import Foundation
@@ -33,6 +33,7 @@ public class AppStorys: ObservableObject {
     @Published public var activeWidgetCampaign: CampaignModel?
     @Published public var activePIPCampaign: CampaignModel?
     @Published var activeScratchCampaign: CampaignModel?
+    @Published public var activeMilestoneCampaign: CampaignModel?
     
     @Published public private(set) var activatedCampaigns: Set<String> = []
     
@@ -57,7 +58,7 @@ public class AppStorys: ObservableObject {
     // Add LRU cache with size limit
     private var lastKnownCampaigns: [String: CampaignSnapshot] = [:] {
         didSet {
-            // âœ… Keep only last 10 screens
+            //  Keep only last 10 screens
             if lastKnownCampaigns.count > 10 {
                 let sortedByAge = lastKnownCampaigns.sorted {
                     $0.value.fetchedAt > $1.value.fetchedAt
@@ -103,7 +104,7 @@ public class AppStorys: ObservableObject {
     private var cachedDeviceAttributes: [String: AnyCodable]?
     var screenCaptureManager: ScreenCaptureManager?
     
-    // âœ… TOOLTIP SUPPORT
+    //  TOOLTIP SUPPORT
     public let elementRegistry = ElementRegistry()
     @Published public private(set) var tooltipManager: TooltipManager!
     
@@ -111,7 +112,7 @@ public class AppStorys: ObservableObject {
     private var userAttributes: [String: AnyCodable] = [:]
     var currentScreen: String?
     
-    // âœ… RACE CONDITION PROTECTION
+    //  RACE CONDITION PROTECTION
     private var activeScreenRequest: (screenName: String, taskID: UUID)?
     private var screenTransitionID = UUID()
     
@@ -126,10 +127,10 @@ public class AppStorys: ObservableObject {
     
     private var eventTrackingTasks: [String: Task<Void, Never>] = [:]
     
-    // âœ… Prevent screen changes during capture
+    //  Prevent screen changes during capture
     private var isCapturing = false
     
-    // âœ… PERFORMANCE: Batch campaign updates
+    //  PERFORMANCE: Batch campaign updates
     private struct ActiveCampaignsBatch {
         var banner: CampaignModel?
         var floater: CampaignModel?
@@ -140,6 +141,7 @@ public class AppStorys: ObservableObject {
         var widget: CampaignModel?
         var pip: CampaignModel?
         var scratchCard: CampaignModel?
+        var milestone: CampaignModel?
     }
     
     // MARK: - Initialization
@@ -245,10 +247,10 @@ public class AppStorys: ObservableObject {
     public func hideAllCampaignsForDisappearingScreen(_ screenName: String) {
         Logger.info("ðŸš« Immediately hiding campaigns for disappearing screen: \(screenName)")
         
-        // âœ… Hide all campaigns immediately
+        //  Hide all campaigns immediately
         hideAllCampaigns()
         
-        // âœ… Clear dismissed state when leaving screen
+        //  Clear dismissed state when leaving screen
         if !dismissedCampaigns.isEmpty {
             let count = dismissedCampaigns.count
             dismissedCampaigns.removeAll()
@@ -261,7 +263,7 @@ public class AppStorys: ObservableObject {
             Logger.debug("🧹 Cleared activated campaigns")
         }
         
-        // âœ… Clear current screen reference if it matches
+        //  Clear current screen reference if it matches
         if currentScreen == screenName {
             currentScreen = nil
             Logger.debug("ðŸ§¹ Cleared currentScreen reference")
@@ -303,6 +305,10 @@ public class AppStorys: ObservableObject {
     
     public var scratchCardCampaigns: [CampaignModel] {
         safeFilteredCampaigns(type: "SCRT")
+    }
+    
+    public var milestoneCampaigns: [CampaignModel] {
+        safeFilteredCampaigns(type: "MIL")
     }
     
     public var storyCampaigns: [StoryCampaign] {
@@ -424,7 +430,7 @@ public class AppStorys: ObservableObject {
     // MARK: - Trigger Event Logic
     public func addTrackedEvent(_ eventName: String) {
         trackedEvents.insert(eventName)
-        Logger.info("âœ… Event tracked: \(eventName)")
+        Logger.info(" Event tracked: \(eventName)")
         updateActiveCampaigns()
     }
     
@@ -468,13 +474,13 @@ public class AppStorys: ObservableObject {
         
         self.tooltipManager = TooltipManager(elementRegistry: elementRegistry)
         self.tooltipManager.setSDK(self)
-        Logger.info("âœ… Tooltip system initialized")
+        Logger.info(" Tooltip system initialized")
         
         do {
             try await authManager?.authenticate()
             await retryPendingEvents()
             self.isInitialized = true
-            Logger.info("âœ… AppStorys SDK initialized successfully")
+            Logger.info(" AppStorys SDK initialized successfully")
         } catch {
             Logger.error("â Œ Failed to initialize AppStorys SDK", error: error)
         }
@@ -628,12 +634,12 @@ public class AppStorys: ObservableObject {
         }
     }
     
-    // âœ… PERFORMANCE FIX: Defer prefetching to background thread
+    //  PERFORMANCE FIX: Defer prefetching to background thread
     private func applyCampaignsToState(_ campaigns: [CampaignModel]) {
         self.campaigns = campaigns
         self.updateActiveCampaigns()
         
-        // âœ… Prefetch asynchronously WITHOUT blocking main thread
+        //  Prefetch asynchronously WITHOUT blocking main thread
         Task.detached(priority: .utility) { [weak self] in
             guard let self = self else { return }
             
@@ -666,7 +672,7 @@ public class AppStorys: ObservableObject {
             
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
             await MainActor.run {
-                Logger.debug("âœ… Background prefetch complete (\(String(format: "%.1f", elapsed))ms)")
+                Logger.debug(" Background prefetch complete (\(String(format: "%.1f", elapsed))ms)")
             }
         }
     }
@@ -715,7 +721,7 @@ public class AppStorys: ObservableObject {
             throw ScreenCaptureError.noActiveScreen
         }
 
-        // âœ… Notify SwiftUI hierarchy to trigger the live snapshot
+        //  Notify SwiftUI hierarchy to trigger the live snapshot
         Logger.info("ðŸ“¸ Triggering SwiftUI snapshot for screen: \(screenName)")
         
         await MainActor.run {
@@ -739,14 +745,14 @@ public class AppStorys: ObservableObject {
             return
         }
         
-        // âœ… CRITICAL: Ignore screen changes during capture operations
+        //  CRITICAL: Ignore screen changes during capture operations
         if isCapturing {
             Logger.debug("ðŸ”’ Ignoring screen change during capture operation: \(screenName)")
             completion([])
             return
         }
 
-        // âœ… Handle screen transition BEFORE state changes
+        //  Handle screen transition BEFORE state changes
         if let previousScreen = currentScreen, previousScreen != screenName {
             Logger.debug("Screen changed from \(previousScreen) → \(screenName)")
             
@@ -772,7 +778,7 @@ public class AppStorys: ObservableObject {
         // Update current screen
         currentScreen = screenName
         
-        // âœ… ALWAYS fetch fresh from WebSocket (no caching logic)
+        //  ALWAYS fetch fresh from WebSocket (no caching logic)
         Logger.info("ðŸŒ  Fetching fresh campaigns for \(screenName)")
         
         let requestID = UUID()
@@ -783,7 +789,7 @@ public class AppStorys: ObservableObject {
         
         Task {
             do {
-                // âœ… Fetch from WebSocket
+                //  Fetch from WebSocket
                 let result = try await campaignManager?.trackScreen(
                     screenName: screenName,
                     userID: userID,
@@ -791,7 +797,7 @@ public class AppStorys: ObservableObject {
                 ) ?? (campaigns: [], screenCaptureEnabled: false)
                 
                 await MainActor.run {
-                    // âœ… Race condition protection
+                    //  Race condition protection
                     guard let active = self.activeScreenRequest,
                           active.screenName == screenName,
                           active.taskID == requestID,
@@ -799,7 +805,7 @@ public class AppStorys: ObservableObject {
                           self.currentScreen == screenName else {
                         Logger.warning("âš ï¸  Discarding stale response for \(screenName)")
                         
-                        // âœ… Still store snapshot for potential network failure fallback
+                        //  Still store snapshot for potential network failure fallback
                         self.lastKnownCampaigns[screenName] = CampaignSnapshot(
                             campaigns: result.campaigns,
                             fetchedAt: Date()
@@ -808,22 +814,22 @@ public class AppStorys: ObservableObject {
                         return
                     }
                     
-                    // âœ… Update capture state
+                    //  Update capture state
                     self.updateCaptureState(result.screenCaptureEnabled)
                     
-                    // âœ… Store fresh snapshot BEFORE applying to UI
+                    //  Store fresh snapshot BEFORE applying to UI
                     self.lastKnownCampaigns[screenName] = CampaignSnapshot(
                         campaigns: result.campaigns,
                         fetchedAt: Date()
                     )
                     
-                    // âœ… Apply to UI state (prefetching now happens in background)
+                    //  Apply to UI state (prefetching now happens in background)
                     self.applyCampaignsToState(result.campaigns)
                     
                     if result.campaigns.isEmpty {
-                        Logger.info("âœ… Screen tracked: \(screenName) - No campaigns available")
+                        Logger.info(" Screen tracked: \(screenName) - No campaigns available")
                     } else {
-                        Logger.info("âœ… Screen tracked: \(screenName) - \(result.campaigns.count) campaigns loaded")
+                        Logger.info(" Screen tracked: \(screenName) - \(result.campaigns.count) campaigns loaded")
                     }
                     
                     completion(result.campaigns)
@@ -833,7 +839,7 @@ public class AppStorys: ObservableObject {
                 Logger.error("â Œ Failed to fetch campaigns", error: error)
                 
                 await MainActor.run {
-                    // âœ… Race condition protection
+                    //  Race condition protection
                     guard let active = self.activeScreenRequest,
                           active.screenName == screenName,
                           active.taskID == requestID,
@@ -844,7 +850,7 @@ public class AppStorys: ObservableObject {
                         return
                     }
                     
-                    // âœ… CRITICAL: Use snapshot as fallback, NEVER clear existing campaigns
+                    //  CRITICAL: Use snapshot as fallback, NEVER clear existing campaigns
                     if let snapshot = self.lastKnownCampaigns[screenName] {
                         let age = Date().timeIntervalSince(snapshot.fetchedAt)
                         
@@ -995,9 +1001,9 @@ public class AppStorys: ObservableObject {
 
     // MARK: - Active Campaign Management (BATCHED)
     
-    /// âœ… PERFORMANCE FIX: Update all campaigns in one transaction to reduce @Published spam
+    ///  PERFORMANCE FIX: Update all campaigns in one transaction to reduce @Published spam
     private func updateActiveCampaigns() {
-        // âœ… Build batch first (no @Published triggers yet)
+        //  Build batch first (no @Published triggers yet)
         let batch = ActiveCampaignsBatch(
             banner: bannerCampaigns.first,
             floater: floaterCampaigns.first,
@@ -1007,10 +1013,11 @@ public class AppStorys: ObservableObject {
             modal: modalCampaigns.first,
             widget: widgetCampaigns.first,
             pip: pipCampaigns.first,
-            scratchCard: scratchCardCampaigns.first
+            scratchCard: scratchCardCampaigns.first,
+            milestone: milestoneCampaigns.first
         )
         
-        // âœ… Apply all at once (triggers ONE SwiftUI update cycle)
+        //  Apply all at once (triggers ONE SwiftUI update cycle)
         activeBannerCampaign = batch.banner
         activeFloaterCampaign = batch.floater
         activeCSATCampaign = batch.csat
@@ -1019,6 +1026,7 @@ public class AppStorys: ObservableObject {
         activeModalCampaign = batch.modal
         activeWidgetCampaign = batch.widget
         activeScratchCampaign = batch.scratchCard
+        activeMilestoneCampaign = batch.milestone
         // Handle PIP specially (check for ID changes)
         let newActivePIP = batch.pip
         if newActivePIP?.id != activePIPCampaign?.id {
@@ -1086,7 +1094,7 @@ public class AppStorys: ObservableObject {
             
             switch result {
             case .success(let stepCount):
-                Logger.info("âœ… Tooltip presented with \(stepCount) steps")
+                Logger.info(" Tooltip presented with \(stepCount) steps")
                 
             case .failure(.noTargetsFound(let missing)):
                 Logger.error("â Œ Tooltip failed - missing elements: \(missing)")
@@ -1125,6 +1133,7 @@ public class AppStorys: ObservableObject {
         activeModalCampaign = nil
         activeWidgetCampaign = nil
         activePIPCampaign = nil
+        activeMilestoneCampaign = nil
         
         tooltipManager?.dismiss()
         
@@ -1204,7 +1213,7 @@ public class AppStorys: ObservableObject {
     private func refreshCampaigns() async {
         guard let currentScreen = currentScreen else { return }
         
-        // âœ… Just re-fetch (no cache invalidation needed)
+        //  Just re-fetch (no cache invalidation needed)
         trackScreen(currentScreen) { _ in
             Logger.debug("Campaigns refreshed for screen: \(currentScreen)")
         }
@@ -1275,19 +1284,19 @@ extension AppStorys {
         Tracked Events: \(trackedEvents.count)
         Dismissed Campaigns: \(dismissedCampaigns.count)
         Snapshots: \(lastKnownCampaigns.count) screens cached
-        Screen Capture: \(isScreenCaptureEnabled ? "âœ… ENABLED" : "â Œ disabled")
-        Tooltip System: \(tooltipManager != nil ? "âœ… READY" : "â Œ not initialized")
+        Screen Capture: \(isScreenCaptureEnabled ? " ENABLED" : "â Œ disabled")
+        Tooltip System: \(tooltipManager != nil ? " READY" : "â Œ not initialized")
         
         Active Campaigns:
-        - Banner: \(activeBannerCampaign != nil ? "âœ…" : "â Œ")
-        - Floater: \(activeFloaterCampaign != nil ? "âœ…" : "â Œ")
-        - PIP: \(activePIPCampaign != nil ? "âœ…" : "â Œ")
-        - CSAT: \(activeCSATCampaign != nil ? "âœ…" : "â Œ")
-        - Survey: \(activeSurveyCampaign != nil ? "âœ…" : "â Œ")
-        - Bottom Sheet: \(activeBottomSheetCampaign != nil ? "âœ…" : "â Œ")
-        - Modal: \(activeModalCampaign != nil ? "âœ…" : "â Œ")
-        - Widget: \(activeWidgetCampaign != nil ? "âœ…" : "â Œ")
-        - Tooltip: \(isTooltipPresenting ? "âœ… PRESENTING" : "â Œ")
+        - Banner: \(activeBannerCampaign != nil ? "" : "â Œ")
+        - Floater: \(activeFloaterCampaign != nil ? "" : "â Œ")
+        - PIP: \(activePIPCampaign != nil ? "" : "â Œ")
+        - CSAT: \(activeCSATCampaign != nil ? "" : "â Œ")
+        - Survey: \(activeSurveyCampaign != nil ? "" : "â Œ")
+        - Bottom Sheet: \(activeBottomSheetCampaign != nil ? "" : "â Œ")
+        - Modal: \(activeModalCampaign != nil ? "" : "â Œ")
+        - Widget: \(activeWidgetCampaign != nil ? "" : "â Œ")
+        - Tooltip: \(isTooltipPresenting ? " PRESENTING" : "â Œ")
         
         Campaign Snapshots:
         \(snapshotInfo.isEmpty ? "  (none)" : snapshotInfo)
@@ -1306,9 +1315,9 @@ extension AppStorys {
 extension AppStorys {
     
     /// Capture structured CSAT response (rating + feedback)
-    /// âœ… Uses dedicated endpoint: /capture-csat-response/
-    /// âœ… Supports offline queueing
-    /// âœ… Validates data before sending
+    ///  Uses dedicated endpoint: /capture-csat-response/
+    ///  Supports offline queueing
+    ///  Validates data before sending
     public func captureCsatResponse(
         csatId: String,
         rating: Int,
@@ -1353,7 +1362,7 @@ extension AppStorys {
                 additionalComments: additionalComments
             )
             
-            Logger.info("âœ… CSAT response captured successfully")
+            Logger.info(" CSAT response captured successfully")
             
         } catch {
             Logger.error("â Œ Failed to capture CSAT response", error: error)
@@ -1435,7 +1444,7 @@ extension AppStorys {
         
         // Optionally decode success response
         if let result = try? JSONDecoder().decode(CsatResponseResult.self, from: data) {
-            Logger.debug("âœ… Server response: \(result.message ?? "Success")")
+            Logger.debug(" Server response: \(result.message ?? "Success")")
         }
     }
     
