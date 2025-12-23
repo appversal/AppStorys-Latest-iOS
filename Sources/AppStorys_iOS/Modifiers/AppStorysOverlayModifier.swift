@@ -285,7 +285,7 @@ struct AppStorysOverlayModifier: ViewModifier {
                     sdk.dismissStory()
                 }
             )
-            .zIndex(2000)
+            .zIndex(4000)
             .id(presentationState.campaign.id)
             .transition(.move(edge: .bottom))
         }
