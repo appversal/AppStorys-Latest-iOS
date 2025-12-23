@@ -8,6 +8,7 @@
 import Foundation
 import UIKit
 
+@MainActor
 struct DeviceInfoProvider {
     static func buildAttributes() -> [String: AnyCodable] {
         let screen = UIScreen.main
